@@ -2,8 +2,9 @@
 declare(strict_types=1);
 
 error_reporting(E_ALL);
-ini_set('display_errors', '0');
 ini_set('log_errors', '1');
+ini_set('display_errors', '0');
+ini_set('display_startup_errors', '0');
 
 // ══════════════════════════════════════════════════════════════
 // PATHS — defined before everything so constants can reference them
@@ -13,7 +14,39 @@ define('PATH_CONFIG_FILE',     PROJECT_APP_ROOT . '.luminova.admin.php');
 define('PATH_APP_CONFIG_FILE', PROJECT_APP_ROOT . '.luminova.php');
 define('PATH_COMPOSER_JSON',   PROJECT_APP_ROOT . 'composer.json');
 define('PATH_TMP',             PROJECT_APP_ROOT . 'writeable/php-tmp');
+define('PATH_LOGS',            PROJECT_APP_ROOT . 'writeable/logs/vci.log');
 
+// ══════════════════════════════════════════════════════════════
+// Error handling
+// ══════════════════════════════════════════════════════════════
+ini_set('error_log', PATH_LOGS);
+set_error_handler(function ($severity, $message, $file, $line) {
+    $log = sprintf(
+        "[%s] %s in %s:%d\n",
+        date('Y-m-d H:i:s'),
+        $message,
+        $file,
+        $line
+    );
+
+    error_log($log, 3, PATH_LOGS);
+    return true;
+});
+
+register_shutdown_function(function () {
+    $error = error_get_last();
+    if ($error) {
+        $log = sprintf(
+            "[FATAL %s] %s in %s:%d\n",
+            date('Y-m-d H:i:s'),
+            $error['message'],
+            $error['file'],
+            $error['line']
+        );
+
+        error_log($log, 3, PATH_LOGS);
+    }
+});
 
 // ══════════════════════════════════════════════════════════════
 // BOOTSTRAP ADMIN CONFIG
