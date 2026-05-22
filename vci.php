@@ -577,8 +577,8 @@ final class VCI
      *
      * Rejects strings that are empty, contain null bytes, start with relative-path
      * prefixes ({@code ./} or {@code ../}), contain control characters or shell
-     * metacharacters ({@code < > | ; & $ ` \ [ ] { } ( )}), or — by default —
-     * contain spaces. Only characters in {@code [a-zA-Z0-9/_.-]} are accepted.
+     * match characters ({@code < > | ; & $ ` \ [ ] { } ( )}).
+     * Only characters in {@code [a-zA-Z0-9/_.-]} are accepted.
      *
      * @param string $value      The path string to validate.
      * @param bool   $allowSpace When true, spaces are permitted in the value.
