@@ -1,4 +1,4 @@
-<img src="https://github.com/luminovang/luminova-vci-admin/raw/main/logo.svg" alt="PHP Luminova VCI" width="260">
+<img src="https://github.com/luminovang/luminova-vci-admin/blob/main/logo.svg" alt="PHP Luminova VCI" width="260">
 
 # PHP Luminova — VCI Admin Dashboard
 
