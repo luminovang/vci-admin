@@ -5,7 +5,7 @@
 **Version Control Interface for the PHP Luminova Framework**
 
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-777BB4?logo=php&logoColor=white)](https://php.net)
-[![License](https://img.shields.io/github/license/luminovang/luminova-vci)](LICENSE)
+[![License](https://img.shields.io/github/license/luminovang/luminova-vci-admin)](LICENSE)
 [![Luminova](https://img.shields.io/badge/Luminova-VCI-0750e1)](https://luminova.ng)
 
 ---
