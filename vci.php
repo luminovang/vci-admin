@@ -165,7 +165,8 @@ unset($_admin);
 
 final class VCI
 {
-    public const VERSION = '1.2.0';
+    public const VERSION = '1.0.0';
+
     private const COMPOSER_UPDATE_MESSAGES = [
         1  => 'Composer autoload configuration updated successfully.',
         0  => 'Failed to read or parse composer.json.',
@@ -507,10 +508,7 @@ final class VCI
      * isIpMatch('127.0.0.1', '127.0.0.1');
      * isIpMatch('192.168.1.15', '192.168.1.0/24');
      */
-    public static function isIpMatch(
-        string $ip,
-        string $rule
-    ): bool 
+    public static function isIpMatch(string $ip, string $rule): bool 
     {
         $ip = trim($ip);
         $rule = trim($rule);
@@ -589,30 +587,23 @@ final class VCI
      */
     public static function isSafePathString(string $value, bool $allowSpace = false): bool
     {
-        if ($value === '') {
-            return false;
-        }
-
-        // null byte = always reject (classic injection bypass)
         if (
-            str_contains($value, "\0") 
+            $value === ''
+            || str_contains($value, "\0") 
             || str_starts_with($value, './')
             || str_starts_with($value, '../')
         ) {
             return false;
         }
 
-        // block control chars + dangerous shell operators
         if (preg_match('/[\x00-\x1F\x7F<>|;&$`\\\[\]\{\}\(\)]/', $value)) {
             return false;
         }
 
-        // must not contain spaces (optional but recommended for CLI safety)
         if (!$allowSpace && str_contains($value, ' ')) {
             return false;
         }
 
-        // basic path sanity: allow /, letters, numbers, dot, dash, underscore
         if (!preg_match('#^[a-zA-Z0-9/_\.\-]+$#', $value)) {
             return false;
         }
@@ -645,7 +636,6 @@ final class VCI
             return false;
         }
 
-        // Reject dangerous characters
         if (preg_match('/[\x00-\x1F\x7F<>|;&$`]/', $path)) {
             return false;
         }
@@ -722,7 +712,6 @@ final class VCI
 
         $cfg = [];
 
-        // Environment variable wins over config file
         foreach (['LUMINOVA_VCI_CONF', 'LUMINOVA_PACKAGE_DIR'] as $k) {
             $v = getenv($k);
 
@@ -930,7 +919,7 @@ final class VCI
     }
 
     /**
-     * Handle the POST save_path action from the setup form.
+     * Handle the POST save path action from the setup form.
      * Validates user input, then persists the admin config.
      */
     private static function handleSavePath(): void
@@ -985,7 +974,6 @@ final class VCI
             }
         }
 
-        // Optional password change
         $newPass     = $_POST['new_password']     ?? '';
         $confirmPass = $_POST['confirm_password'] ?? '';
         $passwordHash = null;
@@ -1030,13 +1018,15 @@ final class VCI
      * @param string|null $composerBin  Path to the Composer executable (optional).
      * @param string|null $phpBin       Path to the PHP executable (optional).
      * @param string|null $passwordHash bcrypt hash of the new admin password (optional).
+     * @param string|null $luminovaVer Target luminova composer version constraint.
      */
     private static function writeAdminConf(
         ?string $packagesDir  = null,
         ?string $luminovaBin  = null,
         ?string $composerBin  = null,
         ?string $phpBin       = null,
-        ?string $passwordHash = null
+        ?string $passwordHash = null,
+        ?string $luminovaVer = null
     ): bool 
     {
         // Load existing data so we only overwrite supplied fields
@@ -1049,6 +1039,7 @@ final class VCI
             'php_bin'       => $phpBin       ?: ($existing['php_bin']       ?? null),
             'luminova_bin'  => $luminovaBin  ?: ($existing['luminova_bin']  ?? null),
             'password_hash' => $passwordHash ?: ($existing['password_hash'] ?? null),
+            'luminova_ver'  => $luminovaVer  ?: ($existing['luminova_ver']  ?? null),
         ], fn($v) => $v !== null && $v !== '');
 
         $data = "<?php\nreturn " . var_export(self::$cache['admin.conf'], true) . ";\n";
@@ -1221,7 +1212,7 @@ final class VCI
 
             foreach ($iterator as $item) {
                 $path = $item->getPathname();
-
+                $isAllowed = false;
                 $relative = substr($path, strlen($dir) + 1);
 
                 // Always preserve .gitignore files
@@ -1240,8 +1231,6 @@ final class VCI
                 }
 
                 if ($keepDefault) {
-                    $isAllowed = false;
-
                     foreach ($allowed as $keep) {
                         if (
                             $relative === $keep
@@ -1254,10 +1243,10 @@ final class VCI
                             break;
                         }
                     }
+                }
 
-                    if ($isAllowed) {
-                        continue;
-                    }
+                if ($isAllowed) {
+                    continue;
                 }
 
                 $isRemoved = $item->isDir()
@@ -1477,7 +1466,6 @@ final class VCI
             self::removeData('login_last_attempt');
             self::removeData('login_error');
 
-            // Auto rehash password if needed
             if (password_needs_rehash(ADMIN_PASSWORD_HASH, PASSWORD_ALGO)) {
                 self::writeAdminConf(
                     passwordHash: password_hash($pass, PASSWORD_ALGO)
@@ -1693,6 +1681,7 @@ final class VCI
         $log[] = $updated
             ? "✔ .luminova.php updated → {$version}"
             : ($err ?? '⚠ Could not update .luminova.php, check file permissions.');
+
         $log[] = '';
 
         $status = self::updateComposerJson($newPath);
@@ -1962,11 +1951,18 @@ final class VCI
             return 0;
         }
 
+        $updateVer = false;
+        $ver = self::$cache['admin.conf']['luminova_ver'] ?? "^3.7";
+
         if($newPath === null){
             if (!isset($json['require']['luminovang/framework'])) {
-                $json['require']['luminovang/framework'] = "^3.7";
+                $json['require']['luminovang/framework'] = $ver;
             }
         }elseif (isset($json['require']['luminovang/framework'])) {
+            $updateVer = true;
+            self::$cache['admin.conf']['luminova_ver'] = $json['require']['luminovang/framework'] 
+                ?? $ver;
+
             unset($json['require']['luminovang/framework']);
         }
 
@@ -2041,6 +2037,10 @@ final class VCI
         if (!rename($tmp, PATH_COMPOSER_JSON)) {
             @unlink($tmp);
             return -1;
+        }
+
+        if($updateVer){
+            self::writeAdminConf(luminovaVer: $ver);
         }
 
         return 1;
@@ -2145,7 +2145,7 @@ final class VCI
         }
 
         if (!is_writable(PATH_APP_CONFIG_FILE)) {
-            $err = '.luminova.php file is not writable.';
+            $err = 'Error ".luminova.php" file is not writable.';
         }
 
         return false;
@@ -2267,7 +2267,7 @@ final class VCI
             case 'login':
                 self::login();
                 break;
-            case 'save_path':
+            case 'save.path':
                 self::handleSavePath();
                 break;
             case 'logout':
@@ -2286,7 +2286,7 @@ final class VCI
                 $result = self::optimizeAutoload();
                 self::json($result['code'] === 0, $result['output']);
                 break;
-            case 'reset_path':
+            case 'reset.path':
                 self::forceLogin();
                 self::redirect('?action=update');
                 break;
@@ -2362,7 +2362,7 @@ VCI::removeData('setup_error');
         frame-ancestors 'none';
         form-action 'self';
       ">
-<title>PHP Luminova — Admin Version Control Interface</title>
+<title>PHP Luminova — Version Control Admin Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
 <script>
@@ -2398,8 +2398,8 @@ VCI::removeData('setup_error');
                 .replace(/>/g, '&gt;');
 
             if (/^✔|switched|autoload|Generating|updated|successful/i.test(s)) return `<span class="t-ok">${s}</span>`;
-            if (/^⚠|warning/i.test(s))                              return `<span class="t-warn">${s}</span>`;
-            if (/^✖|error|failed|fail/i.test(s))                    return `<span class="t-err">${s}</span>`;
+            if (/^⚠|warning|warn/i.test(s))                              return `<span class="t-warn">${s}</span>`;
+            if (/^✖|error|failed|fail|fatal/i.test(s))              return `<span class="t-err">${s}</span>`;
             if (/^\$/.test(s))                                      return `<span class="t-cmd">${s}</span>`;
             return s;
         }).join('\n');
@@ -2448,7 +2448,6 @@ html, body {
 
 code {
     font-family: var(--font-mono);
-    /*font-size: .85em;*/
     background: var(--surface-2);
     border: 1px solid var(--border-hi);
     border-radius: 3px;
@@ -3313,12 +3312,8 @@ code {
             </filter>
         </defs>
 
-        <!-- Icon -->
         <g transform="translate(20,20)">
-            <!-- Outer ring -->
             <circle cx="40" cy="40" r="34" fill="none" stroke="url(#g)" stroke-width="6"/>
-
-            <!-- Inner V shape -->
             <path d="M25 25 L40 60 L55 25"
                 fill="none"
                 stroke="url(#g)"
@@ -3326,12 +3321,9 @@ code {
                 stroke-linecap="round"
                 stroke-linejoin="round"
                 filter="url(#glow)"/>
-
-            <!-- Node dot -->
             <circle cx="40" cy="60" r="4.5" fill="#7aa1f0"/>
         </g>
 
-        <!-- Text -->
         <text x="110" y="62"
                 font-family="Inter, Segoe UI, Arial, sans-serif"
                 font-size="28"
@@ -3491,7 +3483,7 @@ code {
         <?php endif; ?>
 
         <form method="POST" autocomplete="off" id="setup-form" novalidate>
-            <input type="hidden" name="action"          value="save_path">
+            <input type="hidden" name="action"          value="save.path">
             <input type="hidden" name="luminova_bin"    value="<?= htmlspecialchars($state['luminova_bin']) ?>">
             <input type="hidden" name="csrf"            value="<?= htmlspecialchars(VCI::getData('csrf')) ?>">
 
@@ -3833,7 +3825,6 @@ code {
 <div class="app">
 
     <header class="header" id="site-header">
-        <!-- Brand / Logo -->
         <div class="header-brand">
             <svg class="icon" width="200" height="50" aria-label="PHP Luminova VCI">
                 <use href="#luminova-vci-logo"></use>
@@ -3845,12 +3836,11 @@ code {
             </span>
         </div>
 
-        <!-- Desktop nav -->
         <nav class="header-right" aria-label="Site navigation">
             <a href="https://luminova.ng" class="btn btn-ghost" target="_blank" rel="noopener noreferrer">Luminova</a>
             <a href="https://github.com/luminovang/luminova-vci/" class="btn btn-ghost" target="_blank" rel="noopener noreferrer">Github</a>
             <form method="POST" style="display:inline">
-                <input type="hidden" name="action" value="reset_path">
+                <input type="hidden" name="action" value="reset.path">
                 <button class="btn btn-ghost" type="submit">Update Setup</button>
             </form>
             <form method="POST" style="display:inline">
@@ -3859,7 +3849,6 @@ code {
             </form>
         </nav>
 
-        <!-- Hamburger (mobile only) -->
         <button
             class="hamburger"
             id="hamburger-btn"
@@ -3872,15 +3861,12 @@ code {
             <span></span>
         </button>
 
-        <!-- Mobile dropdown nav -->
         <nav class="mobile-nav" id="mobile-nav" aria-label="Mobile navigation" aria-hidden="true">
-            <!-- Current packages path -->
             <div class="mobile-nav-path">
                 <span class="mobile-nav-path-label">Packages directory</span>
                 <span class="mobile-nav-path-value"><?= htmlspecialchars($state['packages']) ?></span>
             </div>
             <div class="mobile-nav-divider"></div>
-            <!-- External links -->
             <div class="mobile-nav-group">
                 <a href="https://luminova.ng" class="btn btn-ghost" target="_blank" rel="noopener noreferrer">
                     Luminova &#x2197;
@@ -3890,10 +3876,9 @@ code {
                 </a>
             </div>
             <div class="mobile-nav-divider"></div>
-            <!-- Actions -->
             <div class="mobile-nav-group">
                 <form method="POST">
-                    <input type="hidden" name="action" value="reset_path">
+                    <input type="hidden" name="action" value="reset.path">
                     <button class="btn btn-ghost" type="submit">Update Setup</button>
                 </form>
                 <form method="POST">
@@ -4178,7 +4163,7 @@ code {
         }, { passive: true });
     }
 
-    let ACTIVE_VER = <?= json_encode($activeVersion) ?>;
+    let ACTIVE_VER = <?= json_encode($isFollowCurrent ? 'current' : $activeVersion) ?>;
 
     const selectEl    = document.getElementById('version-select');
     const applyBtn    = document.getElementById('apply-btn');
