@@ -13,38 +13,105 @@ define('PROJECT_APP_ROOT',     __DIR__ . '/../');
 define('PATH_CONFIG_FILE',     PROJECT_APP_ROOT . '.luminova.admin.php');
 define('PATH_APP_CONFIG_FILE', PROJECT_APP_ROOT . '.luminova.php');
 define('PATH_COMPOSER_JSON',   PROJECT_APP_ROOT . 'composer.json');
-define('PATH_TMP',             PROJECT_APP_ROOT . 'writeable/php-tmp');
+define('PATH_TMP',             PROJECT_APP_ROOT . 'writeable/vci-tmp');
 define('PATH_LOGS',            PROJECT_APP_ROOT . 'writeable/logs/vci.log');
+
+if (!is_dir(PATH_TMP)) {
+    mkdir(PATH_TMP, 0777, true);
+}
+
+chmod(PATH_TMP, 01777);
+ini_set('sys_temp_dir', PATH_TMP);
+putenv('TMPDIR=' . PATH_TMP);
+putenv('TMP=' . PATH_TMP);
+putenv('TEMP=' . PATH_TMP);
 
 // ══════════════════════════════════════════════════════════════
 // Error handling
 // ══════════════════════════════════════════════════════════════
 ini_set('error_log', PATH_LOGS);
-set_error_handler(function ($severity, $message, $file, $line) {
+
+/**
+ * Append a formatted log entry to the VCI error log file.
+ *
+ * Writes a timestamped line in the form:
+ * {@code [SEVERITY YYYY-MM-DD HH:MM:SS] message in file:line}
+ *
+ * @param string $message  Human-readable error description.
+ * @param string $severity Severity label (e.g. 'ERROR', 'FATAL').
+ *                         Pass an empty string to omit the label.
+ * @param string $file     Absolute path of the file where the error occurred.
+ * @param int    $line     Line number inside $file.
+ *
+ * @return bool True when the entry was written; false on write failure.
+ */
+function _log(string $message, string $severity, string $file, int $line): bool {
     $log = sprintf(
-        "[%s] %s in %s:%d\n",
+        "[%s%s] %s in %s:%d\n",
+        $severity ? strtoupper($severity) . ' ': '',
         date('Y-m-d H:i:s'),
         $message,
         $file,
         $line
     );
 
-    error_log($log, 3, PATH_LOGS);
+    return error_log($log, 3, PATH_LOGS);
+}
+
+/**
+ * Detect the absolute path of the PHP CLI executable.
+ *
+ * Tries {@code command -v php} first, then iterates a platform-specific list of
+ * well-known paths (XAMPP, Homebrew, {@see PHP_BINDIR}, etc.). Returns the first
+ * candidate that exists and is executable.
+ *
+ * @return string|null Absolute path to the PHP binary, or null if none is found.
+ */
+function _php_binary(): ?string
+{
+    $candidates = [
+        trim((string) shell_exec('command -v php')) ?: null,
+    ];
+
+    if (PHP_OS_FAMILY === 'Windows') {
+        $candidates = array_merge($candidates, [
+            'C:\\php\\php.exe',
+            getenv('PHP_PATH') ?: null,
+            'C:\\xampp\\php\\php.exe'
+        ]);
+    } else {
+        $candidates = array_merge($candidates, [
+            '/usr/bin/php',
+            '/usr/local/bin/php',
+            '/opt/homebrew/bin/php',
+            PHP_BINDIR . '/php',
+            'php',
+            PHP_BINARY
+        ]);
+    }
+
+    foreach ($candidates as $php) {
+        if(!$php){
+            continue;
+        }
+
+        if (is_file($php) && is_executable($php)) {
+            return $php;
+        }
+    }
+
+    return null;
+}
+
+set_error_handler(function ($severity, $message, $file, $line) {
+    _log($message, 'ERROR', $file, $line);
     return true;
 });
 
 register_shutdown_function(function () {
     $error = error_get_last();
     if ($error) {
-        $log = sprintf(
-            "[FATAL %s] %s in %s:%d\n",
-            date('Y-m-d H:i:s'),
-            $error['message'],
-            $error['file'],
-            $error['line']
-        );
-
-        error_log($log, 3, PATH_LOGS);
+        _log($error['message'], 'FATAL', $error['file'], $error['line']);
     }
 });
 
@@ -54,7 +121,7 @@ register_shutdown_function(function () {
 // ══════════════════════════════════════════════════════════════
 $_admin = [];
 
-if (is_file(PATH_CONFIG_FILE)) {
+if (@is_file(PATH_CONFIG_FILE)) {
     $_admin = include PATH_CONFIG_FILE;
 }
 
@@ -72,7 +139,6 @@ define('DEFAULT_PASSWORD_HASH', (PASSWORD_ALGO === PASSWORD_ARGON2ID)
     ? '$argon2id$v=19$m=65536,t=4,p=1$tb8BPE1vmNCPl5fST4tHzQ$V2KqGZ3T8jHvu5iUSu1oItzbMAJcTGp2cIhLoX/MzPg' 
     : '$2y$10$RaLLDqoINJGuVyU0pp22lOd0QAPkpkV7uZY7KMX5AI7NQs01ebpYW'
 );
-
 define('ADMIN_USERNAME',     'admin');
 define('SESSION_LIFETIME',   3600);
 define('LOGIN_MAX_ATTEMPTS',   5);
@@ -81,16 +147,25 @@ define('SESSION_STORAGE',    '__VCI_MANAGER__');
 
  // 1 (enable), 2 (enable and delete old session id)
 define('SESSION_REGENERATE_ID',    0);
-define('ADMIN_PASSWORD_HASH', $_admin['password_hash'] ?? DEFAULT_PASSWORD_HASH);
-define('COMPOSER_BIN',        $_admin['composer_bin'] ?? '/usr/local/bin/composer');
-define('PHP_BIN',             $_admin['php_bin']  ?? (PHP_BINARY ?: '/usr/bin/php'));
-define('LUMINOVA_BIN',        $_admin['luminova_bin']  ?? '');
+define('ADMIN_PASSWORD_HASH',  $_admin['password_hash'] ?? DEFAULT_PASSWORD_HASH);
+define('COMPOSER_BIN',         $_admin['composer_bin'] ?? (
+    @is_file(PROJECT_APP_ROOT . 'composer.phar') ? PROJECT_APP_ROOT . 'composer.phar' : '/usr/local/bin/composer'
+));
+define('PHP_BIN',              $_admin['php_bin'] ?? _php_binary());
+define('LUMINOVA_BIN',         $_admin['luminova_bin']  ?? '');
 define('ALLOWED_IP_ADDRESSES', $_admin['allowed_ip_addresses']  ?? []);
+
+/**
+ * Used to download composer.phar if composer is not installed 
+ * in environment
+ */
+define('COMPOSER_PHAR_VERSION',  'latest-stable');
 
 unset($_admin);
 
 final class VCI
 {
+    public const VERSION = '1.2.0';
     private const COMPOSER_UPDATE_MESSAGES = [
         1  => 'Composer autoload configuration updated successfully.',
         0  => 'Failed to read or parse composer.json.',
@@ -114,11 +189,21 @@ final class VCI
         'binary' => null,
         'base'   => null,
         'home'   => null,
-        'versions' => [],
-        'admin.conf' => []
+        'appConf' => null,
+        'is_conflict'   => null,
+        'versions'      => [],
+        'admin.conf'    => []
     ];
 
-    /** Wipe all in-request caches (useful after config writes). */
+    /**
+     * Wipe all in-request cache buckets.
+     *
+     * Resets every cache bucket to its initial empty state. Must be called after
+     * writing the admin config or the application config so that subsequent reads
+     * reflect the newly persisted values rather than stale in-memory data.
+     *
+     * @return void
+     */
     public static function flushCache(): void
     {
         self::$cache = [
@@ -127,16 +212,26 @@ final class VCI
             'binary' => null,
             'base'   => null,
             'home'   => null,
-            'versions' => [],
-            'admin.conf' => []
+            'appConf' => null,
+            'is_conflict'   => null,
+            'versions'      => [],
+            'admin.conf'    => []
         ];
     }
 
-    /** Resolve the current user's home directory. */
+    /**
+     * Resolve the current user home directory path.
+     *
+     * Reads the {@code HOME} environment variable on Unix systems or
+     * {@code APPDATA} on Windows. Falls back to {@code posix_getpwuid()} when
+     * neither environment variable is set. Result is cached in-request.
+     *
+     * @return string|null Absolute home directory path, or null when undetermined.
+     */
     private static function userHome(): ?string
     {
         return self::$cache['home'] ??= (
-            getenv('HOME') ?: (function () {
+            getenv(defined('PHP_WINDOWS_VERSION_MAJOR') ? 'APPDATA' : 'HOME') ?: (function () {
                 $info = function_exists('posix_getpwuid')
                     ? @posix_getpwuid(posix_getuid())
                     : null;
@@ -146,17 +241,192 @@ final class VCI
     }
 
     /**
-     * Get the client IP address safely.
+     * Download and install composer.phar to the project root via PHP's copy().
      *
-     * Supports:
-     * - Cloudflare
-     * - Reverse proxies
-     * - Shared proxies
-     * - Standard REMOTE_ADDR fallback
+     * Validates the CSRF token and the requested version string, then runs a
+     * two-step shell command: copy the remote PHAR and verify it with --version.
+     * Writes a JSON response and exits.
      *
-     * Warning:
-     * HTTP headers like X-Forwarded-For can be spoofed unless
-     * your server is behind a trusted proxy.
+     * @return void
+     */
+    public static function getComposer(): void
+    {
+        header('Content-Type: application/json');
+
+        if (!self::isCsrfValid($_POST['csrf'] ?? '')) {
+            self::json(false, 'CSRF validation failed.');
+        }
+
+        $version = COMPOSER_PHAR_VERSION ?: 'latest-stable';
+
+        if (
+            !preg_match(
+                '/^(latest(?:-(?:stable|preview))?|snapshot|v?\d+\.\d+\.\d+)$/',
+                $version
+            )
+        ) {
+            self::json(
+                false,
+                sprintf('Invalid Composer version "%s".', $version)
+            );
+        }
+
+        $root = rtrim(PROJECT_APP_ROOT, DIRECTORY_SEPARATOR)
+            . DIRECTORY_SEPARATOR;
+
+        $target = $root . 'composer.phar';
+        $temp   = $target . '.tmp';
+
+        if (is_file($target)) {
+            self::json(
+                true,
+                'Composer PHAR binary already installed.'
+            );
+        }
+
+        $url = sprintf(
+            'https://getcomposer.org/download/%s/composer.phar',
+            rawurlencode($version)
+        );
+
+        if (!filter_var($url, FILTER_VALIDATE_URL)) {
+            self::json(false, 'Invalid Composer download URL.');
+        }
+
+        $read = @fopen($url, 'rb');
+
+        if ($read === false) {
+            self::json(
+                false,
+                'Failed to download Composer PHAR.'
+            );
+        }
+
+        $write = @fopen($temp, 'wb');
+
+        if ($write === false) {
+            fclose($read);
+
+            self::json(
+                false,
+                'Failed to create temporary Composer file.'
+            );
+        }
+
+        try {
+            while (!feof($read)) {
+                $chunk = fread($read, 8192);
+
+                if ($chunk === false) {
+                    self::json(
+                        false,
+                        'Failed while reading Composer download stream.'
+                    );
+                }
+
+                if (fwrite($write, $chunk) === false) {
+                    self::json(
+                        false,
+                        'Failed while writing Composer PHAR.'
+                    );
+                }
+            }
+        } catch (Throwable $e) {
+            @unlink($temp);
+
+            self::json(false, $e->getMessage());
+        } finally {
+            fclose($read);
+            fclose($write);
+        }
+
+        if (!@rename($temp, $target)) {
+            @unlink($temp);
+
+            self::json(
+                false,
+                'Failed to finalize Composer PHAR installation.'
+            );
+        }
+
+        @chmod($target, 0755);
+        $php = PHP_BIN;
+
+        if (
+            !$php ||
+            !is_file($php) ||
+            !is_executable($php)
+        ) {
+            $php = PHP_BINARY ?: 'php';
+        }
+
+        $response = self::runCommand(sprintf(
+            '%s %s --version',
+            escapeshellarg($php),
+            escapeshellarg($target)
+        ));
+
+        if (($response['code'] ?? 1) !== 0) {
+            @unlink($target);
+
+            self::json(
+                false,
+                'Composer PHAR verification failed.'
+            );
+        }
+
+        self::json(true, [
+            '✔ Composer PHAR installed to project root.',
+            '',
+            trim((string) ($response['output'] ?? ''))
+        ], true);
+    }
+
+    /**
+     * Send JSON response and terminate execution.
+     */
+    private static function json(
+        bool $success,
+        string|array $output,
+        bool $isArray = false
+    ): void 
+    {
+        echo json_encode([
+            'success' => $success,
+            'isArray' => $isArray,
+            'output'  => $output
+        ]);
+
+        exit;
+    }
+
+    /**
+     * Issue an HTTP redirect back to the panel URL and halt execution.
+     *
+     * Appends $params as a query string; a leading {@code ?} is added automatically
+     * when the string does not already begin with one.
+     *
+     * @param string $params Optional query-string fragment, e.g. {@code 'action=update'}.
+     *
+     * @return never
+     */
+    public static function redirect(string $params = ''): void 
+    {
+        if($params && !str_starts_with($params, '?')){
+            $params = '?' . $params;
+        }
+        
+        header('Location: ' . __SELF__ . $params);
+        exit;
+    }
+
+    /**
+     * Return the most trusted client IP address available.
+     *
+     * Checks standard proxy headers in priority order; validates each candidate
+     * with FILTER_VALIDATE_IP before accepting it.
+     *
+     * @return string A valid IP string, or '0.0.0.0' when none can be determined.
      */
     public static function getUserIp(): string
     {
@@ -191,12 +461,12 @@ final class VCI
     }
 
     /**
-     * Check whether the current user IP is allowed.
+     * Check whether the current visitor's IP is permitted to access the panel.
      *
-     * Supports:
-     * - Exact IP match
-     * - CIDR ranges (IPv4 only)
-     * - IPv6 exact match
+     * When ALLOWED_IP_ADDRESSES is empty every IP is allowed. Otherwise the
+     * visitor's IP must match at least one entry (exact or CIDR).
+     *
+     * @return bool True when access is permitted.
      */
     private static function isAllowedIp(): bool
     {
@@ -206,6 +476,8 @@ final class VCI
             return false;
         }
 
+        $hasRules = false;
+
         foreach (ALLOWED_IP_ADDRESSES as $rule) {
             $rule = trim($rule);
 
@@ -213,17 +485,18 @@ final class VCI
                 continue;
             }
 
-            if ($ip === $rule) {
+            $hasRules = true;
+
+            if ($ip === $rule || self::isIpMatch($ip, $rule)) {
                 return true;
             }
-
-            return self::isIpMatch($ip, $rule);
         }
 
-        return true;
+        // When no non-empty rules are defined, allow all IPs.
+        return !$hasRules;
     }
 
-  /**
+    /**
      * Check whether an IP matches a rule.
      *
      * Supports:
@@ -280,6 +553,15 @@ final class VCI
         return false;
     }
 
+    /**
+     * Return true when the project targets the rolling {@code current} symlink.
+     *
+     * When the configured target path ends with {@code /current} (or {@code /current/})
+     * the project automatically follows the latest stable release without requiring
+     * an explicit version switch.
+     *
+     * @return bool True when the active target points at the {@code current} symlink.
+     */
     public static function isFollowCurrent(): bool 
     {
         $target = self::appConf('luminova.paths')['target'] ?? '';
@@ -292,6 +574,19 @@ final class VCI
             || str_ends_with($target, '/current/');
     }
 
+    /**
+     * Validate that a filesystem path string is safe for shell and storage use.
+     *
+     * Rejects strings that are empty, contain null bytes, start with relative-path
+     * prefixes ({@code ./} or {@code ../}), contain control characters or shell
+     * metacharacters ({@code < > | ; & $ ` \ [ ] { } ( )}), or — by default —
+     * contain spaces. Only characters in {@code [a-zA-Z0-9/_.-]} are accepted.
+     *
+     * @param string $value      The path string to validate.
+     * @param bool   $allowSpace When true, spaces are permitted in the value.
+     *
+     * @return bool True when the string passes all safety checks.
+     */
     public static function isSafePathString(string $value, bool $allowSpace = false): bool
     {
         if ($value === '') {
@@ -325,6 +620,17 @@ final class VCI
         return true;
     }
 
+    /**
+     * Validate that a path points to an existing, executable regular file.
+     *
+     * Checks in order: non-empty string, no null bytes, no relative-path prefix,
+     * no shell-dangerous control characters, successful {@code realpath()} resolution,
+     * {@code is_file()}, and {@code is_executable()}.
+     *
+     * @param string $path Candidate absolute path to a binary executable.
+     *
+     * @return bool True when all checks pass and the resolved file is executable.
+     */
     public static function isValidExecutable(string $path): bool
     {
         if ($path === '') {
@@ -394,6 +700,10 @@ final class VCI
             if ($home) {
                 $paths[] = "{$home}/luminova";
                 $paths[] = "{$home}/.local/bin/luminova";
+
+                if (defined('PHP_WINDOWS_VERSION_MAJOR')) {
+                    $paths[] = "{$home}/luminova";
+                }
             }
         }
 
@@ -583,6 +893,22 @@ final class VCI
         ];
     }
 
+    /**
+     * Load and cache the persisted VCI admin configuration array.
+     *
+     * Reads {@see PATH_CONFIG_FILE} on the first call and caches the result
+     * in-request. Subsequent calls within the same request return the cached value
+     * without touching the filesystem.
+     *
+     * @return array{
+     *     packages?: string,
+     *     composer_bin?: string,
+     *     php_bin?: string,
+     *     luminova_bin?: string,
+     *     password_hash?: string,
+     *     allowed_ip_addresses?: list<string>
+     * } Config array; empty when the file does not exist or cannot be read.
+     */
     public static function getAdminConf(): array
     {
         if(is_file(PATH_CONFIG_FILE) && empty(self::$cache['admin.conf'])){
@@ -617,8 +943,7 @@ final class VCI
 
         if (!self::isCsrfValid($_POST['csrf'] ?? '')) {
             self::setData('setup_error', 'CSRF validation failed.');
-            header('Location: ' . __SELF__ . $query);
-            exit;
+            self::redirect($query);
         }
 
         $packagesDir = rtrim(trim($_POST['luminova_base'] ?? ''), '/');
@@ -628,8 +953,7 @@ final class VCI
                 'setup_error',
                 "Path '{$packagesDir}' is not allowed."
             );
-            header('Location: ' . __SELF__ . $query);
-            exit;
+            self::redirect($query);
         }
 
         if (!self::validPackagesDir($packagesDir)) {
@@ -637,8 +961,7 @@ final class VCI
                 'setup_error',
                 "Path not valid: a releases/ directory was not found at '{$packagesDir}'."
             );
-            header('Location: ' . __SELF__ . $query);
-            exit;
+            self::redirect($query);
         }
 
         $luminovaPath  = rtrim(trim($_POST['luminova_bin']  ?? ''), '/');
@@ -652,8 +975,13 @@ final class VCI
                     "'{$path}' is not a valid '{$name}' binary path."
                 );
 
-                header('Location: ' . __SELF__ . $query);
-                exit;
+                $query = $query . ($query ? '&' : '?') . 'tab=2';
+
+                if($name === 'composer'){
+                    self::redirect($query . '&get-composer=1');
+                }
+
+                self::redirect($query);
             }
         }
 
@@ -663,22 +991,21 @@ final class VCI
         $passwordHash = null;
 
         if ($newPass !== '') {
+            $query = $query . ($query ? '&' : '?') . 'tab=2';
+
             if (preg_match('/[\x00-\x1F\x7F]/', $newPass)) {
                 self::setData('setup_error', 'Password cannot contain control characters and null bytes.');
-                header('Location: ' . __SELF__ . $query);
-                exit;
+                self::redirect($query);
             }
 
             if (strlen($newPass) < 8) {
                 self::setData('setup_error', 'Password must be at least 8 characters.');
-                header('Location: ' . __SELF__ . $query);
-                exit;
+                self::redirect($query);
             }
 
             if ($newPass !== $confirmPass) {
                 self::setData('setup_error', 'Passwords do not match.');
-                header('Location: ' . __SELF__ . $query);
-                exit;
+                self::redirect($query);
             }
 
             $passwordHash = password_hash($newPass, PASSWORD_ALGO);
@@ -689,12 +1016,10 @@ final class VCI
                 'setup_error',
                 'Could not write ' . PATH_CONFIG_FILE . ' — check directory permissions.'
             );
-            header('Location: ' . __SELF__ . $query);
-            exit;
+            self::redirect($query);
         }
 
-        header('Location: ' . __SELF__);
-        exit;
+        self::redirect();
     }
 
     /**
@@ -751,28 +1076,66 @@ final class VCI
         }
     }
 
+    /**
+     * Retrieve a value stored under the VCI session namespace.
+     *
+     * @param string $name    Session key to look up.
+     * @param mixed  $default Value to return when the key is absent or not set.
+     *
+     * @return mixed The stored session value, or $default when the key is missing.
+     */
     public static function getData(string $name, mixed $default = null): mixed
     {
         return $_SESSION[SESSION_STORAGE][$name] ?? $default;
     }
 
+    /**
+     * Return true when a non-empty value exists under the given session key.
+     *
+     * @param string $name Session key to check.
+     *
+     * @return bool True when the key is present and its value is truthy.
+     */
     public static function hasData(string $name): bool
     {
         return !empty(self::getData($name));
     }
 
+    /**
+     * Store a value under the VCI session namespace and return it.
+     *
+     * @param string $name  Session key to write.
+     * @param mixed  $value Value to persist in the session.
+     *
+     * @return mixed The value that was stored.
+     */
     public static function setData(string $name, mixed $value): mixed
     {
         $_SESSION[SESSION_STORAGE][$name] = $value;
         return $value;
     }
 
+    /**
+     * Remove a key from the VCI session namespace.
+     *
+     * @param string $name Session key to delete.
+     *
+     * @return void
+     */
     public static function removeData(string $name): void
     {
         unset($_SESSION[SESSION_STORAGE][$name]);
     }
 
-    /** Return true when the session is authenticated and not expired. */
+    /**
+     * Return true when the session is authenticated and within its lifetime.
+     *
+     * Verifies that the {@code auth} flag is set, the authentication timestamp
+     * is within {@see SESSION_LIFETIME} seconds of now, and the current request
+     * IP matches the IP recorded at login time.
+     *
+     * @return bool True when the current session represents a valid, active login.
+     */
     public static function isLoggedIn(): bool
     {
         return self::hasData('auth')
@@ -795,6 +1158,14 @@ final class VCI
         return max(0, $remaining);
     }
 
+    /**
+     * Return the remaining session lifetime formatted as {@code MM:SS of N min}.
+     *
+     * Returns the literal string {@code 'Expired'} when the session carries no
+     * recorded authentication timestamp or the lifetime has already elapsed.
+     *
+     * @return string Formatted time string, e.g. {@code '42:17 of 60 min'}.
+     */
     public static function getRemainingSessionFormatted(): string
     {
         $seconds = self::getRemainingSessionTime();
@@ -809,7 +1180,17 @@ final class VCI
         return sprintf('%02d:%02d of %d min', $minutes, $seconds, floor(SESSION_LIFETIME / 60));
     }
 
-    /** Redirect to the login screen unless the session is authenticated. */
+    /**
+     * Terminate execution with a logout if the session is not authenticated.
+     *
+     * Serves as an authentication gate for protected actions. When $isJson is
+     * true and the session has expired, a JSON error is sent instead of an HTTP
+     * redirect so AJAX callers can handle the expiry gracefully.
+     *
+     * @param bool $isJson When true, respond with JSON on session expiry.
+     *
+     * @return void On an active session; otherwise terminates via {@see self::logout()}.
+     */
     public static function forceLogin(bool $isJson = false): void
     {
         if (!self::isLoggedIn()) {
@@ -817,6 +1198,213 @@ final class VCI
         }
     }
 
+    private static function removeModules(bool $keepDefault = true): int
+    {
+        $removed = 0;
+
+        $rules = [
+            PROJECT_APP_ROOT . 'bootstrap' => ['constants.php'],
+            PROJECT_APP_ROOT . 'system'    => ['Boot.php', 'plugins']
+        ];
+
+        $plugins = 'plugins' . DIRECTORY_SEPARATOR;
+
+        foreach ($rules as $dir => $allowed) {
+            if (!is_dir($dir)) {
+                continue;
+            }
+
+            $iterator = new RecursiveIteratorIterator(
+                new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS),
+                RecursiveIteratorIterator::CHILD_FIRST
+            );
+
+            foreach ($iterator as $item) {
+                $path = $item->getPathname();
+
+                $relative = substr($path, strlen($dir) + 1);
+
+                // Always preserve .gitignore files
+                if (str_ends_with($relative, '.gitignore')) {
+                    continue;
+                }
+
+                // Preserve plugins directory and contents
+                if (
+                    $relative === 'plugins'
+                    || $relative === 'Boot.php'
+                    || str_starts_with($relative, $plugins)
+                    || str_starts_with($relative, 'Boot.php')
+                ) {
+                    continue;
+                }
+
+                if ($keepDefault) {
+                    $isAllowed = false;
+
+                    foreach ($allowed as $keep) {
+                        if (
+                            $relative === $keep
+                            || (
+                                $keep === 'plugins'
+                                && str_starts_with($relative, $plugins)
+                            )
+                        ) {
+                            $isAllowed = true;
+                            break;
+                        }
+                    }
+
+                    if ($isAllowed) {
+                        continue;
+                    }
+                }
+
+                $isRemoved = $item->isDir()
+                    ? @rmdir($path)
+                    : @unlink($path);
+
+                if ($isRemoved) {
+                    $removed++;
+                }
+            }
+        }
+
+        return $removed;
+    }
+
+    /**
+     * Recursively remove every file and sub-directory inside a directory.
+     *
+     * The $target directory itself is preserved; only its contents are deleted.
+     * Entries that cannot be removed are silently skipped.
+     *
+     * @param string $target Absolute path to the directory whose contents should be cleared.
+     *
+     * @return int Number of files and directories successfully removed.
+     */
+    private static function cleanDirectory(string $target): int
+    {
+        if (!is_dir($target)) {
+            return 0;
+        }
+
+        $removed = 0;
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($target, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::CHILD_FIRST
+        );
+
+        foreach ($iterator as $file) {
+            $path = $file->getPathname();
+       
+            if ($file->isDir()) {
+                $isRemoved = @rmdir($path);
+            } else {
+                $isRemoved = @unlink($path);
+            }
+
+            if ($isRemoved) {
+                $removed++;
+            }
+        }
+
+        return $removed;
+    }
+
+    /**
+     * Move the contents of temporary staging directories to their final destinations.
+     *
+     * Iterates $maps where each key is a source directory path and each value is the
+     * corresponding target path. Items inside the source are moved with {@code rename()};
+     * the now-empty source directory is removed after all items have been relocated.
+     * Terminates with a JSON error response if any individual move fails.
+     *
+     * @param array<string,string> $maps Source-to-destination directory path pairs.
+     *
+     * @return void On success; otherwise terminates with a JSON error response.
+     */
+    private static function renameDirectory(array $maps): void
+    {
+        foreach ($maps as $temp => $target) {
+            if (!is_dir($target) && !mkdir($target, 0755, true)) {
+                self::json(false, "Failed to create target directory: {$target}");
+            }
+
+            $items = scandir($temp);
+
+            if ($items === false) {
+                self::json(false, "Failed to read temp directory: {$temp}");
+            }
+
+            foreach ($items as $item) {
+                if ($item === '.' || $item === '..') {
+                    continue;
+                }
+
+                $from = $temp . $item;
+                $to   = $target . $item;
+
+                if (!rename($from, $to)) {
+                    self::json(false, "Failed to move: {$item}");
+                }
+            }
+
+            @rmdir($temp);
+        }
+    }
+
+    /**
+     * Detect whether local framework files co-exist with shared-module autoloading.
+     *
+     * Checks for files that are only present when the framework has been physically
+     * copied into the project (e.g. {@code bootstrap/functions.php},
+     * {@code system/Luminova.php}). Finding these alongside shared-module
+     * configuration means the project is in an ambiguous state. Result is cached
+     * in-request to avoid redundant filesystem probes.
+     *
+     * @return bool True when an ambiguous module conflict is detected.
+     */
+    public static function isModuleConflict(): bool
+    {
+        if(self::$cache['is_conflict'] !== null){
+            return self::$cache['is_conflict'];
+        }
+
+        $rules = [
+            PROJECT_APP_ROOT . 'bootstrap' => ['functions.php', 'worker.php'],
+            PROJECT_APP_ROOT . 'system'    => ['Luminova.php', 'Foundation/Core/Application.php']
+        ];
+
+        foreach ($rules as $dir => $checks) {
+            if (!is_dir($dir)) {
+                continue;
+            }
+
+            foreach ($checks as $file) {
+                if(is_file($dir . DIRECTORY_SEPARATOR . $file)){
+                    return self::$cache['is_conflict'] = true;
+                }
+            }
+        }
+
+        return self::$cache['is_conflict'] = false;
+    }
+
+    /**
+     * Process a login POST request and authenticate the admin session.
+     *
+     * Enforces brute-force protection: after {@see LOGIN_MAX_ATTEMPTS} consecutive
+     * failures within {@see FAILED_LOGIN_LOCK_WINDOW_TS} seconds the panel is
+     * temporarily locked. On success the session is populated with authentication
+     * metadata and the stored password hash is automatically upgraded to the
+     * preferred algorithm when required. On failure the attempt counter is
+     * incremented and an error message is flashed to the session.
+     *
+     * Always terminates by calling {@see self::redirect()} — never returns normally.
+     *
+     * @return never
+     */
     public static function login(): void
     {
         $attempts = (int) self::getData('login_attempts', 0);
@@ -841,8 +1429,7 @@ final class VCI
                 )
             );
 
-            header('Location: ' . __SELF__);
-            exit;
+            self::redirect();
         }
 
         $user = trim($_POST['username'] ?? '');
@@ -850,8 +1437,7 @@ final class VCI
 
         if(!$user){
             self::setData('login_error', 'Username is required.');
-            header('Location: ' . __SELF__);
-            exit;
+            self::redirect();
         }
 
         if (
@@ -861,20 +1447,17 @@ final class VCI
             !preg_match('/^[a-zA-Z0-9._-]+$/', $user)
         ) {
             self::setData('login_error', 'Invalid username format.');
-            header('Location: ' . __SELF__);
-            exit;
+            self::redirect();
         }
 
         if ($pass === '') {
             self::setData('login_error', 'Password is required.');
-            header('Location: ' . __SELF__);
-            exit;
+            self::redirect();
         }
 
         if (preg_match('/[\x00-\x1F\x7F]/', $pass)) {
             self::setData('login_error', 'Invalid password.');
-            header('Location: ' . __SELF__);
-            exit;
+            self::redirect();
         }
 
         if (
@@ -914,10 +1497,20 @@ final class VCI
             );
         }
 
-        header('Location: ' . __SELF__);
-        exit;
+        self::redirect();
     }
 
+    /**
+     * Destroy the current session and redirect to the login screen.
+     *
+     * When $isJson is true a JSON error payload is emitted instead of an HTTP
+     * redirect, which allows AJAX endpoints to detect an expired session without
+     * a page reload.
+     *
+     * @param bool $isJson When true, emit a JSON error response instead of redirecting.
+     *
+     * @return never Always terminates execution.
+     */
     public static function logout(bool $isJson = false): void
     {
         $_SESSION[SESSION_STORAGE] = [];
@@ -925,25 +1518,25 @@ final class VCI
 
         if ($isJson) {
             header('Content-Type: application/json');
-            echo json_encode(['success' => false, 'output' => 'Login session expired.']);
-            exit;
+            self::json(false, 'Login session expired.');
         }
 
-        header('Location: ' . __SELF__);
-        exit;
+        self::redirect();
     }
 
-    /** Constant-time CSRF token comparison. */
+    /**
+     * Validate a CSRF token against the one stored in the current session.
+     *
+     * Uses {@code hash_equals()} for constant-time comparison to prevent
+     * timing-based token disclosure attacks.
+     *
+     * @param string $token Token value submitted with the POST request.
+     *
+     * @return bool True when the submitted token matches the session-stored value.
+     */
     public static function isCsrfValid(string $token): bool
     {
         return hash_equals(self::getData('csrf', ''), $token);
-    }
-
-    /** Remove the admin config file, destroy the session, and redirect. */
-    private static function updateSetup(): void
-    {
-        header('Location: ' . __SELF__ . '?action=update');
-        exit;
     }
 
     /**
@@ -953,7 +1546,7 @@ final class VCI
      *
      * @param array|null $state Runtime state array from initRuntimeState(); auto-resolved when null.
      */
-    public static function listVersions(?array $state = null): array
+    public static function getInstalledVersions(?array $state = null): array
     {
         if(!empty(self::$cache['versions'])){
             return self::$cache['versions'];
@@ -972,15 +1565,11 @@ final class VCI
             return [];
         }
 
-        $dirs = array_filter(
-            glob($releasesDir . '/*', GLOB_ONLYDIR) ?: [],
-            fn($d) => basename($d) !== '' && basename($d) !== '.'
-        );
-
+        $dirs = glob("{$releasesDir}/*", GLOB_ONLYDIR) ?: [];
         $versions = array_map(fn($d) => basename($d), $dirs);
+
         usort($versions, 'version_compare');
 
-        // Annotate the active version
         if (is_dir($currentLink)) {
             $resolved = is_link($currentLink) 
                 ? readlink($currentLink) 
@@ -999,12 +1588,15 @@ final class VCI
      *
      * @return array{string, string}
      */
-    public static function activeRelease(): array
+    public static function getAppActiveVersion(): array
     {
-        $target = self::appConf('luminova.paths')['target'] ?? '';
+        $conf = self::appConf();
+
+        $status = $conf['resolve.paths'] ?? false;
+        $target = $conf['luminova.paths']['target'] ?? '';
 
         if (!file_exists($target)) {
-            return ['', $target];
+            return ['', $target, $status];
         }
 
         $resolved = is_link($target) ? readlink($target) : realpath($target);
@@ -1012,6 +1604,7 @@ final class VCI
         return [
             ($resolved !== false) ? basename($resolved) : '',
             $resolved !== false ? $resolved : $target,
+            $status
         ];
     }
 
@@ -1020,46 +1613,68 @@ final class VCI
      *
      * @param string|null $key  Return a single top-level key when provided.
      */
-    private static function appConf(?string $key = null): mixed
+    public static function appConf(?string $key = null): mixed
     {
-        static $conf = null;
-        if ($conf === null && is_file(PATH_APP_CONFIG_FILE)) {
-            $conf = include PATH_APP_CONFIG_FILE;
+        if (!isset(self::$cache['appConf']) && is_file(PATH_APP_CONFIG_FILE)) {
+            self::$cache['appConf'] = include PATH_APP_CONFIG_FILE;
         }
 
+        if (!is_array(self::$cache['appConf'])) {
+            return null;
+        }
         if ($key === null) {
-            return $conf;
+            return self::$cache['appConf'];
         }
 
-        return is_array($conf) ? ($conf[$key] ?? null) : null;
+        return self::$cache['appConf'][$key] ?? null;
     }
 
     /**
-     * Handle the POST switch action.
+     * Validate shared pre-conditions for any version-switch or localize request.
+     *
+     * Sets the JSON {@code Content-Type} header and terminates with a JSON error when:
+     * the CSRF token is invalid; the runtime state shows setup is incomplete;
+     * {@code composer.json} is absent from the project root; or the requested
+     * version string is not in the list of installed releases.
+     *
+     * @param string $version Requested release version string (e.g. {@code '4.0.0'}).
+     * @param array  $state   Runtime state array from {@see self::initRuntimeState()}.
+     *
+     * @return void On valid input; otherwise terminates with a JSON error.
+     */
+    private static function switchHeader(string $version, array $state): void
+    {
+        header('Content-Type: application/json');
+
+        if (!self::isCsrfValid($_POST['csrf'] ?? '')) {
+            self::json(false, 'CSRF validation failed.');
+        }
+
+        if ($state['needsSetup']) {
+            self::json(false, 'Luminova path not configured.');
+        }
+
+        if(!self::isComposerJson()){
+            self::json(false, 'composer.json file is missing in project root. Upload or create composer.json file.');
+        }
+
+        $allowed = self::getInstalledVersions($state);
+
+        if ($version === '' || !in_array($version, $allowed, true)) {
+            self::json(false, 'Invalid or unknown version.');
+        }
+    }
+
+    /**
+     * Handle the version switch action.
      * Validates the requested version, updates .luminova.php, and runs
      * composer dump-autoload.
      */
     private static function handleSwitch(array $state): void
     {
-        header('Content-Type: application/json');
-
-        if (!self::isCsrfValid($_POST['csrf'] ?? '')) {
-            echo json_encode(['success' => false, 'output' => 'CSRF validation failed.']);
-            exit;
-        }
-
-        if ($state['needsSetup']) {
-            echo json_encode(['success' => false, 'output' => 'Luminova path not configured.']);
-            exit;
-        }
-
         $version = trim($_POST['version'] ?? '');
-        $allowed = self::listVersions($state);
 
-        if ($version === '' || !in_array($version, $allowed, true)) {
-            echo json_encode(['success' => false, 'output' => 'Invalid or unknown version.']);
-            exit;
-        }
+        self::switchHeader($version, $state);
 
         $packagesDir = rtrim($state['packages'], DIRECTORY_SEPARATOR);
         $newPath = match($version) {
@@ -1067,50 +1682,224 @@ final class VCI
             default   => "{$packagesDir}/releases/{$version}"
         };
 
+        if (!is_dir($newPath)) {
+            self::json(false, 'Target version path does not exist: ' . $version);
+        }
+
         $log = [];
         $err = null;
-        $updated = self::writeAppConfig($newPath, $packagesDir, $err);
+        $updated = self::writeAppConfig($newPath, $packagesDir, false, $err);
 
         $log[] = $updated
             ? "✔ .luminova.php updated → {$version}"
-            : ($err ?? '⚠ Could not write .luminova.php — check file permissions.');
+            : ($err ?? '⚠ Could not update .luminova.php, check file permissions.');
         $log[] = '';
-
-        $appRoot = PROJECT_APP_ROOT;
-        $cwd     = getcwd();
-        chdir($appRoot);
-
-        try {
-            if (!is_dir(PATH_TMP)) {
-                mkdir(PATH_TMP, 0777, true);
-            }
-
-            chmod(PATH_TMP, 01777);
-        
-            $composer = self::runCommand(
-                'TMPDIR=' . PATH_TMP . ' '
-                . escapeshellarg(PHP_BIN) 
-                . ' ' . escapeshellarg(COMPOSER_BIN)
-                . ' dump-autoload --no-dev --optimize'
-            );
-        } finally {
-            if ($cwd) {
-                chdir($cwd);
-            }
-        }
-
-        $log[]   = $composer['output'];
-        $success = $updated && $composer['code'] === 0;
 
         $status = self::updateComposerJson($newPath);
         $log[] = self::COMPOSER_UPDATE_MESSAGES[$status] 
             ?? "Unknown composer update status: {$status}";
         $log[] = '';
 
-        echo json_encode(['success' => $success, 'output' => implode("\n", $log)]);
-        exit;
+        $composer = self::optimizeAutoload();
+
+        $log[]   = $composer['output'];
+        $success = $updated && $composer['code'] === 0;
+
+        self::json($success, implode("\n", $log));
     }
 
+    /**
+     * Remove ambiguous local framework files and regenerate the Composer autoloader.
+     *
+     * Validates the CSRF token and confirms a module conflict exists before pruning
+     * local {@code bootstrap/} and {@code system/} files. Always-required files
+     * ({@code Boot.php}, {@code constants.php}, all of {@code plugins/}) are
+     * preserved. Runs {@code composer dump-autoload --no-dev --optimize} after
+     * cleanup and returns combined output as a JSON response.
+     *
+     * @return never Always terminates with a JSON response.
+     */
+    public static function removeAndOptimizeModule(): void
+    {
+        header('Content-Type: application/json');
+
+        if (!self::isCsrfValid($_POST['csrf'] ?? '')) {
+            self::json(false, 'CSRF validation failed.');
+        }
+
+        if (!self::isModuleConflict()) {
+            self::json(false, 'No module conflict detected.');
+        }
+
+        $removed = self::removeModules();
+
+        if($removed === 0){
+            self::json(
+                false, 
+                'No files were removed. Check directory permissions and try again.'
+            );
+        }
+
+        $log = ["Local module cleanup completed. Removed {$removed} files."];
+
+        $composer = self::optimizeAutoload();
+        $log[]   = $composer['output'];
+
+        self::json(true, implode("\n", $log));
+    }
+
+    /**
+     * Localize a release by physically copying its framework files into the project.
+     *
+     * Copies {@code bootstrap/} and {@code system/} (excluding {@code plugins/}) from
+     * the selected release into a temporary staging directory, prunes existing local
+     * module files, then moves the staged copies into the project root. Updates
+     * {@code composer.json} to reference local paths and sets
+     * {@code resolve.paths = false} in {@code .luminova.php} to disable the
+     * shared-module feature. Runs {@code composer dump-autoload} and returns a JSON
+     * result.
+     *
+     * @param array $state Runtime state array from {@see self::initRuntimeState()}.
+     *
+     * @return never Always terminates with a JSON response.
+     */
+    private static function importModuleVersion(array $state): void
+    {
+        $version = trim($_POST['version'] ?? '');
+
+        self::switchHeader($version, $state);
+
+        $packagesDir = rtrim($state['packages'], DIRECTORY_SEPARATOR);
+
+        $newPath = ($version === 'current')
+            ? (
+                readlink("{$packagesDir}/current")
+                    ?: realpath("{$packagesDir}/current")
+                    ?: "{$packagesDir}/current"
+            )
+            : "{$packagesDir}/releases/{$version}";
+
+        if (!is_dir($newPath)) {
+            self::json(false, "Target version does not exist: {$version}");
+        }
+
+        $tmpRoot = PROJECT_APP_ROOT . 'writeable/modules-tmp/';
+        $targets = [
+            "{$newPath}/bootstrap/" => "{$tmpRoot}bootstrap/",
+            "{$newPath}/system/"    => "{$tmpRoot}system/"
+        ];
+
+        $imported = 0;
+
+        foreach ($targets as $source => $destination) {
+            if (!is_dir($source)) {
+                unlink($tmpRoot);
+                self::json(false, "Missing source directory: {$source}");
+            }
+
+            if (!is_dir($destination) && !mkdir($destination, 0755, true)) {
+                unlink($tmpRoot);
+                self::json(false, "Failed to create temp directory: {$destination}");
+            }
+
+            $iterator = new RecursiveIteratorIterator(
+                new RecursiveDirectoryIterator($source, FilesystemIterator::SKIP_DOTS),
+                RecursiveIteratorIterator::SELF_FIRST
+            );
+
+            foreach ($iterator as $item) {
+                $srcPath = $item->getPathname();
+
+                $relPath = substr($srcPath, strlen($source));
+
+                // Skip plugins directory entirely
+                if (
+                    $relPath === 'plugins'
+                    || str_starts_with($relPath, 'plugins' . DIRECTORY_SEPARATOR)
+                ) {
+                    continue;
+                }
+
+                $destPath = $destination . $relPath;
+
+                if ($item->isDir()) {
+                    if (!is_dir($destPath)) {
+                        mkdir($destPath, 0755, true);
+                    }
+
+                    continue;
+                }
+
+                $destDir = dirname($destPath);
+
+                if (!is_dir($destDir)) {
+                    mkdir($destDir, 0755, true);
+                }
+
+                if (copy($srcPath, $destPath)) {
+                    $imported++;
+                }
+            }
+        }
+
+        if ($imported === 0) {
+            self::json(false, 'No files were imported. Check file permissions.');
+        }
+
+        self::removeModules();
+        self::renameDirectory([
+            "{$tmpRoot}bootstrap/" => PROJECT_APP_ROOT . 'bootstrap/',
+            "{$tmpRoot}system/"    => PROJECT_APP_ROOT . 'system/'
+        ]);
+
+        $err = null;
+        $log = [];
+
+        $log[] = "Successfully imported {$imported} files.";
+        $log[] = '';
+
+        $status = self::updateComposerJson(null);
+
+        $log[] = self::COMPOSER_UPDATE_MESSAGES[$status]
+            ?? "Unknown composer update status: {$status}";
+
+        $log[] = '';
+
+        $updated = self::writeAppConfig($newPath, $packagesDir, true, $err);
+
+        $log[] = $updated
+            ? '✔ .luminova.php updated successfully.'
+            : ($err ?? '⚠ Failed to update .luminova.php.');
+
+        $log[] = '';
+
+        $composer = self::optimizeAutoload();
+
+        $log[] = $composer['output'] ?? 'Composer optimization completed.';
+
+        self::json(true, implode("\n", $log));
+    }
+
+    /**
+     * Return true when {@code composer.json} exists in the project root.
+     *
+     * @return bool True when {@see PATH_COMPOSER_JSON} resolves to a regular file.
+     */
+    private static function isComposerJson(): bool
+    {
+        return is_file(PATH_COMPOSER_JSON);
+    }
+
+    /**
+     * Read and JSON-decode the project {@code composer.json} file.
+     *
+     * Returns an integer error code when the file cannot be used:
+     * {@code 0} — file missing, unreadable, or JSON parse failure;
+     * {@code 2} — file exists but is not both readable and writable.
+     *
+     * @return array<string,mixed>|int Decoded associative array on success,
+     *                                  or an integer error code on failure.
+     */
     private static function readComposerJson(): array|int
     {
         if (!is_file(PATH_COMPOSER_JSON)) {
@@ -1128,7 +1917,8 @@ final class VCI
                 512,
                 JSON_THROW_ON_ERROR
             );
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            _log($e->getMessage(), 'EXCEPTION', $e->getFile(), $e->getLine());
             return 0;
         }
 
@@ -1139,7 +1929,26 @@ final class VCI
         return $json;
     }
 
-    private static function updateComposerJson(string $newPath): int
+    /**
+     * Rewrite the PSR-4 autoload entries in {@code composer.json} for a release path.
+     *
+     * Adjusts the {@code Luminova\} and {@code Luminova\Funcs\} namespace mappings
+     * to include both the local stub path and the shared release directory. When
+     * $newPath is null the mappings are reset to local-only paths (used during the
+     * localize / import workflow).
+     *
+     * Return codes:
+     * {@code  1} — success (file updated or already correct);
+     * {@code  0} — file missing, parse error, or invalid autoload section;
+     * {@code  2} — file not readable or not writable;
+     * {@code -1} — atomic write or rename of the temporary file failed.
+     *
+     * @param string|null $newPath Absolute path to the target release directory,
+     *                             or null to reset to local-only paths.
+     *
+     * @return int Status code as described above.
+     */
+    private static function updateComposerJson(?string $newPath): int
     {
         $json = self::readComposerJson();
 
@@ -1147,15 +1956,18 @@ final class VCI
             return $json;
         }
 
-        // remove package requirement to avoid updating
-        if (isset($json['require']['luminovang/framework'])) {
-            unset($json['require']['luminovang/framework']);
-        }
-
         $psr4 = $json['autoload']['psr-4'] ?? [];
 
         if (!is_array($psr4)) {
             return 0;
+        }
+
+        if($newPath === null){
+            if (!isset($json['require']['luminovang/framework'])) {
+                $json['require']['luminovang/framework'] = "^3.7";
+            }
+        }elseif (isset($json['require']['luminovang/framework'])) {
+            unset($json['require']['luminovang/framework']);
         }
 
         $newPsr4 = [];
@@ -1182,6 +1994,17 @@ final class VCI
             }
 
             $newValue = "{$suffix}/";
+
+            if($newPath === null){
+                if ($path === $newValue || $path === ["{$suffix}/"]) {
+                    $newPsr4[$namespace] = $path;
+                    continue;
+                }
+
+                $newPsr4[$namespace] = ["{$suffix}/"];
+                $changes++;
+                continue;
+            }
 
             if ($path === $newValue || $path === ["{$suffix}/", "{$newPath}/{$suffix}/"]) {
                 $newPsr4[$namespace] = $path;
@@ -1244,83 +2067,88 @@ final class VCI
     }
 
     /**
-     * Rewrite the 'target' key inside the luminova.paths array in raw PHP source.
-     * Uses the tokenizer to locate and replace the value precisely.
-     */
-    private static function patchTargetPath(string $content, string $newValue): string
-    {
-        $tokens = token_get_all($content);
-        $result = '';
-
-        $insidePaths = false;
-        $foundTarget = false;
-        $foundArrow  = false;
-
-        foreach ($tokens as $token) {
-            if (is_array($token)) {
-                [$id, $text] = $token;
-
-                if ($id === T_CONSTANT_ENCAPSED_STRING && trim($text, "'\"") === 'luminova.paths') {
-                    $insidePaths = true;
-                } elseif ($insidePaths && $id === T_CONSTANT_ENCAPSED_STRING && trim($text, "'\"") === 'target') {
-                    $foundTarget = true;
-                } elseif ($foundTarget && $text === '=>') {
-                    $foundArrow = true;
-                } elseif ($foundArrow && $id === T_CONSTANT_ENCAPSED_STRING) {
-                    $text = "'" . addslashes($newValue) . "'";
-                    $insidePaths = $foundTarget = $foundArrow = false;
-                }
-
-                $result .= $text;
-            } else {
-                if ($foundTarget && trim($token) === '=>') {
-                    $foundArrow = true;
-                }
-                $result .= $token;
-            }
-        }
-
-        return $result;
-    }
-
-    /**
      * Update the project's .luminova.php to reference $version.
      * Creates the file with sensible defaults when it does not yet exist.
      *
      * @param string $newPath Release version path
+     * @param string $packagesDir Packages directory path
+     * @param bool $isLocal Switch to local modules.
      * @param string|null $err Set to an error message on failure.
      */
-    private static function writeAppConfig(string $newPath, string $packagesDir, ?string &$err = null): bool
+    private static function writeAppConfig(
+        string $newPath, 
+        string $packagesDir, 
+        bool $isLocal = false,
+        ?string &$err = null
+    ): bool
     {
+        $conf = null;
+        $comment = <<<COMMENT
+        /**
+         * Luminova Boot Configuration
+         *
+         * Defines how the bootloader resolves framework core paths and autoload strategy.
+         * This file is loaded during early bootstrap and overrides default resolution logic.
+         *
+         * Modes:
+         * - resolve.paths: enables shared framework installation
+         * - resolve.autoloader:
+         *      auto     → detect Composer, fallback to Luminova if needed
+         *      composer → use Composer only (recommended updating composer psr4 mapping)
+         *      luminova → use custom loader only
+         *
+         * Rules:
+         * - Only system/bootstrap may be shared
+         * - Application code (app, routes, storage) must remain local
+         * - Version mismatch may cause runtime instability
+         *
+         * @link https://luminova.ng/docs/0.0.0/boot/shared-modules
+         *
+         * @return array{
+         *     resolve.paths: bool,
+         *     resolve.autoloader: 'auto'|'composer'|'luminova',
+         *     luminova.version: string,
+         *     luminova.paths: array{
+         *         root: string,
+         *         target: string
+         *     }
+         * }
+         */
+        COMMENT;
+
         if (is_file(PATH_APP_CONFIG_FILE)) {
-            if (!is_writable(PATH_APP_CONFIG_FILE)) {
-                $err = '.luminova.php is not writable.';
-                return false;
-            }
-
-            $content = file_get_contents(PATH_APP_CONFIG_FILE);
-
-            if ($content !== false) {
-                $content = self::patchTargetPath($content, $newPath);
-            } else {
-                $conf = self::appConf() ?? [];
-                $conf['luminova.paths']['target'] = $newPath;
-                $content = "<?php\n\nreturn " . var_export($conf, true) . ";\n";
-            }
-        } else {
-            $conf = [
-                'resolve.paths'      => true,
-                'resolve.autoloader' => 'auto',
-                'luminova.version'   => '>=3.8',
-                'luminova.paths'     => [
-                    'root'   => $packagesDir,
-                    'target' => $newPath,
-                ],
-            ];
-            $content = "<?php\n\nreturn " . var_export($conf, true) . ";\n";
+            $conf = self::appConf();
         }
 
-        return file_put_contents(PATH_APP_CONFIG_FILE, $content) !== false;
+        $conf ??= [
+            'resolve.paths'      => true,
+            'resolve.autoloader' => 'auto',
+            'luminova.version'   => '>=3.8',
+            'luminova.paths'     => [
+                'root'   => '',
+                'target' => '',
+            ],
+        ];
+
+        $oldPath = $conf['luminova.paths']['target'] ?? '';
+
+        $conf['resolve.paths'] = !$isLocal;
+        $conf['luminova.paths'] = [
+            'root'   => $packagesDir,
+            'target' => $newPath ?? $oldPath
+        ];
+
+        $content = "<?php\n{$comment}\nreturn " . var_export($conf, true) . ";\n";
+
+        if(file_put_contents(PATH_APP_CONFIG_FILE, $content) !== false){
+            return true;
+        }
+
+        if (!is_writable(PATH_APP_CONFIG_FILE)) {
+            $err = '.luminova.php file is not writable.';
+        }
+
+        return false;
     }
 
     /**
@@ -1330,21 +2158,56 @@ final class VCI
      */
     private static function runCommand(string $cmd): array
     {
+        $appRoot = PROJECT_APP_ROOT;
+        $cwd     = getcwd();
+        chdir($appRoot);
+
         $output = [];
         $code   = 0;
-        exec($cmd . ' 2>&1', $output, $code);
 
-        return [
-            'output' => "$ {$cmd}\n" . implode("\n", $output),
-            'code'   => $code,
-        ];
+        try {
+            exec($cmd . ' 2>&1', $output, $code);
+
+            return [
+                'output' => "$ {$cmd}\n" . implode("\n", $output),
+                'code'   => $code,
+            ];
+        } finally {
+            if ($cwd) {
+                chdir($cwd);
+            }
+        }
+    }
+
+    /**
+     * Run {@code composer dump-autoload --no-dev --optimize} in the project root.
+     *
+     * Temporarily changes the working directory to {@see PROJECT_APP_ROOT}, invokes
+     * Composer using the configured {@see PHP_BIN} and {@see COMPOSER_BIN} constants,
+     * captures all output including stderr, and restores the original working
+     * directory before returning.
+     *
+     * @return array{output: string, code: int} Combined command output and process exit code.
+     */
+    private static function optimizeAutoload(): array
+    {
+        return self::runCommand(
+            escapeshellarg(PHP_BIN) 
+            . ' ' . escapeshellarg(COMPOSER_BIN)
+            . ' dump-autoload --no-dev --optimize'
+        );
     }
 
     /**
      * Return true when $target is located inside (or is equal to) $base.
      * Both paths are resolved to real paths before comparison.
+     * 
+     * @param string $base
+     * @param string $target
+     * 
+     * @return bool 
      */
-    public static function pathWithin(string $base, string $target): bool
+    public static function isPathWithin(string $base, string $target): bool
     {
         $base   = realpath($base);
         $target = realpath($target);
@@ -1373,7 +2236,6 @@ final class VCI
     public static function initRuntimeState(): array
     {
         [$packagesDir, $luminovaBin] = self::getPaths();
-
         $needsSetup = ($packagesDir === '') || !file_exists(PATH_CONFIG_FILE);
 
         return [
@@ -1385,7 +2247,20 @@ final class VCI
         ];
     }
 
-    /** Route POST actions to the appropriate handler. */
+    /**
+     * Route a POST request to the appropriate action handler.
+     *
+     * Dispatches on the $action string. Actions that modify state
+     * ({@code switch}, {@code import}, {@code optimize}, {@code remove.local})
+     * require an active session enforced via {@see self::forceLogin()}.
+     * Unknown actions receive a 400 JSON error response.
+     *
+     * @param string $action Action identifier matching one of the known names
+     *                       (e.g. {@code 'login'}, {@code 'switch'}, {@code 'logout'}).
+     * @param array  $state  Runtime state array from {@see self::initRuntimeState()}.
+     *
+     * @return void
+     */
     public static function onPostRequest(string $action, array $state): void
     {
         switch ($action) {
@@ -1396,17 +2271,36 @@ final class VCI
                 self::handleSavePath();
                 break;
             case 'logout':
-                self::forceLogin();
                 self::logout();
                 break;
             case 'switch':
                 self::forceLogin(true);
                 self::handleSwitch($state);
                 break;
+            case 'import':
+                self::forceLogin(true);
+                self::importModuleVersion($state);
+                break;
+            case 'optimize':
+                self::forceLogin(true);
+                $result = self::optimizeAutoload();
+                self::json($result['code'] === 0, $result['output']);
+                break;
             case 'reset_path':
                 self::forceLogin();
-                self::updateSetup();
+                self::redirect('?action=update');
                 break;
+            case 'composer':
+                self::forceLogin();
+                self::getComposer();
+                break;
+            case 'remove.local':
+                self::forceLogin(true);
+                self::removeAndOptimizeModule();
+                break;
+            default:
+                http_response_code(400);
+                self::json(false, 'Unknown action.');
         }
     }
 }
@@ -1420,19 +2314,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     VCI::onPostRequest($_POST['action'], $state);
 }
 
-if (isset($_GET['logout'])) {
-    VCI::logout();
-}
+if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+    $action = $_GET['action'] ?? null;
 
-$isUpdate = false;
+    if ($action) {
+        VCI::forceLogin();
 
-if (!empty($_GET['action'])) {
-    $isUpdate = $_GET['action'] === 'update';
+        $isUpdate = $action === 'update';
+    }
+
+    if (isset($_GET['logout'])) {
+        VCI::logout();
+    }
 }
 
 // ── View data
-$versions = VCI::listVersions($state);
-[$activeVersion, $appTargetPackage] = VCI::activeRelease();
+$versions = VCI::getInstalledVersions($state);
+[$activeVersion, $appTargetPackage, $vciResolveStatus] = VCI::getAppActiveVersion();
 $isFollowCurrent = VCI::isFollowCurrent();
 
 $loginError = VCI::getData('login_error', '');
@@ -1467,6 +2365,46 @@ VCI::removeData('setup_error');
 <title>PHP Luminova — Admin Version Control Interface</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+<script>
+    const CSRF = <?= json_encode(VCI::getData('csrf')) ?>;
+    window.submit = async function(form, onComplete = null) {
+        form.set('csrf', CSRF);
+        const response = await fetch(window.location.href, {
+            method: 'POST',
+            body: form
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        if (typeof onComplete === 'function') {
+            onComplete(data);
+        }
+
+        return data;
+    };
+
+    window.colorize = function(raw) {
+        if (!Array.isArray(raw)) {
+            raw = raw.split('\n');
+        }
+
+        return raw.map(line => {
+            const s = line.replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+
+            if (/^✔|switched|autoload|Generating|updated|successful/i.test(s)) return `<span class="t-ok">${s}</span>`;
+            if (/^⚠|warning/i.test(s))                              return `<span class="t-warn">${s}</span>`;
+            if (/^✖|error|failed|fail/i.test(s))                    return `<span class="t-err">${s}</span>`;
+            if (/^\$/.test(s))                                      return `<span class="t-cmd">${s}</span>`;
+            return s;
+        }).join('\n');
+    };
+</script>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -1510,7 +2448,7 @@ html, body {
 
 code {
     font-family: var(--font-mono);
-    font-size: .85em;
+    /*font-size: .85em;*/
     background: var(--surface-2);
     border: 1px solid var(--border-hi);
     border-radius: 3px;
@@ -1539,7 +2477,7 @@ code {
 
 .btn-primary {
     background: var(--amber);
-    color: #0c0c0c;
+    color: #ffff;
     border-color: transparent;
     width: 100%;
     justify-content: center;
@@ -1560,7 +2498,7 @@ code {
     color: var(--text);
 }
 
-.btn-apply {
+.btn-primary-sm {
     background: var(--amber);
     color: #ffff;
     border-color: transparent;
@@ -1568,7 +2506,7 @@ code {
     flex-shrink: 0;
 }
 
-.btn-apply:hover:not(:disabled) { background: var(--amber-hover); }
+.btn-primary-sm:hover:not(:disabled) { background: var(--amber-hover); }
 
 .btn-secondary {
     background: transparent;
@@ -1683,25 +2621,6 @@ code {
     color: var(--amber);
 }
 
-.divider {
-    display: flex;
-    align-items: center;
-    gap: .75rem;
-    margin: 1.5rem 0 1.1rem;
-    color: var(--muted-2);
-    font-size: .65rem;
-    letter-spacing: .1em;
-    text-transform: uppercase;
-    font-family: var(--font-sans);
-}
-
-.divider::before, .divider::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: var(--border);
-}
-
 .auth-wrap {
     min-height: 100vh;
     display: flex;
@@ -1730,13 +2649,6 @@ code {
     border-bottom: 1px solid var(--border);
 }
 
-.auth-logo-mark {
-    width: 7px; height: 7px;
-    background: var(--amber);
-    border-radius: 50%;
-    flex-shrink: 0;
-}
-
 .auth-logo-title {
     font-size: .875rem;
     font-weight: 500;
@@ -1749,100 +2661,6 @@ code {
     font-weight: 300;
 }
 
-.setup-stepper {
-    display: flex;
-    align-items: center;
-    gap: 0;
-    margin-bottom: 2rem;
-    padding-bottom: 1.5rem;
-    border-bottom: 1px solid var(--border);
-}
-
-.setup-step {
-    display: flex;
-    align-items: center;
-    gap: .5rem;
-    flex: 1;
-    position: relative;
-}
-
-.setup-step:not(:last-child)::after {
-    content: '';
-    position: absolute;
-    left: calc(1.25rem + .5rem);
-    right: 0;
-    top: 50%;
-    height: 1px;
-    background: var(--border);
-    z-index: 0;
-    transition: background 240ms;
-}
-
-.setup-step.done:not(:last-child)::after {
-    background: var(--blue);
-}
-
-.setup-step-num {
-    width: 1.5rem; height: 1.5rem;
-    border-radius: 50%;
-    border: 1px solid var(--border-hi);
-    background: var(--surface-2);
-    color: var(--muted);
-    font-size: .65rem;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    position: relative;
-    z-index: 1;
-    transition: background 200ms, border-color 200ms, color 200ms;
-}
-
-.setup-step.active .setup-step-num {
-    background: #5080c8;
-    border-color: #5080c8;
-    color: #fff;
-}
-
-.setup-step.done .setup-step-num {
-    background: var(--surface-2);
-    border-color: #5080c8;
-    color: #5080c8;
-}
-
-.setup-step-label {
-    font-size: .65rem;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    color: var(--muted);
-    white-space: nowrap;
-    font-family: var(--font-sans);
-    transition: color 200ms;
-    display: none;
-}
-
-.setup-step.active .setup-step-label { color: var(--text); display: block; }
-.setup-step.done   .setup-step-label { display: none; }
-
-/* Step panels */
-.setup-panel { display: none; }
-.setup-panel.active { display: block; }
-
-.setup-panel-title {
-    font-size: .875rem;
-    font-weight: 500;
-    color: var(--text);
-    margin-bottom: .3rem;
-}
-
-.setup-panel-desc {
-    font-size: .775rem;
-    color: var(--muted);
-    line-height: 1.6;
-    margin-bottom: 1.25rem;
-}
-
 .setup-paths-list {
     background: var(--surface-2);
     border: 1px solid var(--border);
@@ -1853,45 +2671,6 @@ code {
     color: var(--muted);
     line-height: 1.9;
 }
-
-/* Wizard nav row */
-.setup-nav {
-    display: flex;
-    gap: .6rem;
-    margin-top: 1.4rem;
-}
-
-/* Password strength */
-.pw-strength {
-    height: 2px;
-    background: var(--border);
-    border-radius: 2px;
-    margin-top: .45rem;
-    overflow: hidden;
-}
-
-.pw-strength-bar {
-    height: 100%;
-    width: 0;
-    border-radius: 2px;
-    transition: width 200ms, background 200ms;
-}
-
-.pw-hint {
-    font-size: .7rem;
-    color: var(--muted);
-    margin-top: .3rem;
-}
-
-/* Inline validation */
-.field-input.invalid { border-color: var(--red); }
-.field-error {
-    font-size: .7rem;
-    color: var(--red-text);
-    margin-top: .3rem;
-    display: none;
-}
-.field-error.visible { display: block; }
 
 .app {
     min-height: 100vh;
@@ -2170,27 +2949,43 @@ code {
     font-weight: 300;
 }
 
-.status-live {
+.status-indicator {
     display: inline-flex;
     align-items: center;
     gap: .35rem;
-    background: var(--green-bg);
-    border: 1px solid var(--green);
-    color: var(--green-text);
     border-radius: 3px;
     padding: .25rem .6rem;
     font-size: .65rem;
     letter-spacing: .08em;
     text-transform: uppercase;
-    font-family: var(--font-sans);
     flex-shrink: 0;
 }
 
-.status-live::before {
+.status-indicator::before {
     content: '';
     width: 5px; height: 5px;
     background: var(--green-text);
     border-radius: 50%;
+}
+
+.status-live {
+    background: var(--green-bg);
+    border: 1px solid var(--green);
+    color: var(--green-text);
+}
+
+.status-live::before {
+    background: var(--green-text);
+}
+
+.status-inactive {
+    background: var(--red-bg);
+    border: 1px solid var(--red);
+    color: var(--red-text);
+}
+
+.status-inactive::before {
+    background: var(--red-text);
 }
 
 .error-card {
@@ -2210,19 +3005,20 @@ code {
 
 .error-card-icon {
     color: var(--red-text);
-    font-size: .9rem;
+    font-size: 1.6rem;
+    font-weight: 500;
     flex-shrink: 0;
 }
 
 .error-card-title {
-    font-size: .8rem;
+    font-size: 1rem;
     font-weight: 500;
     color: var(--red-text);
     letter-spacing: .02em;
 }
 
 .error-card-body {
-    font-size: .775rem;
+    font-size: .975rem;
     color: var(--muted);
     line-height: 1.7;
 }
@@ -2655,7 +3451,6 @@ code {
     <div class="auth-card wizard">
 
         <div class="auth-logo">
-            <span class="auth-logo-mark" style="background:#5080c8"></span>
             <span class="auth-logo-title">Luminova <span class="auth-logo-sub">/ Setup</span></span>
         </div>
 
@@ -2681,7 +3476,18 @@ code {
         </div>
 
         <?php if ($setupError): ?>
-        <div class="alert alert-error" id="server-error"><?= htmlspecialchars($setupError) ?></div>
+            <div class="alert alert-error" id="server-error"><?= htmlspecialchars($setupError) ?></div>
+        <?php endif; ?>
+        <?php if (!empty($_GET['get-composer']) && (int) $_GET['get-composer'] === 1): ?>
+            <script>setTimeout(() => shouldInstallComposer(), 2000); </script>
+            <div id="composer-result" style="display:none;margin-bottom:1rem;border:1px solid var(--border-hi);border-radius:var(--radius-lg);overflow:hidden;">
+                <div class="terminal-bar">
+                    <span class="terminal-bar-title">composer output</span>
+                    <button class="terminal-bar-close" type="button"
+                        onclick="document.getElementById('composer-result').style.display='none'">✕</button>
+                </div>
+                <div class="terminal-body" id="composer-output" style="max-height:160px"></div>
+            </div>
         <?php endif; ?>
 
         <form method="POST" autocomplete="off" id="setup-form" novalidate>
@@ -2813,7 +3619,7 @@ code {
                     <button class="btn btn-secondary" type="button" onclick="wizardPrev(3)">&larr; Back</button>
                     <button class="btn btn-primary" type="submit"
                         style="background:#5080c8;color:#fff;border-color:transparent">
-                        Save &amp; Finish
+                        <?= ($isUpdate ? 'Update Config' : 'Save &amp; Finish') ?>
                     </button>
                 </div>
             </div>
@@ -2830,8 +3636,14 @@ code {
     let current   = 1;
 
     const serverErr = document.getElementById('server-error');
+    const to = <?= json_encode(max(1, (int) ($_GET['tab'] ?? 1)));?>;
+
     if (serverErr) {
-        goToStep(1);
+        goToStep(to);
+    }
+
+    if(to > 1){
+        setTimeout(() =>  goToStep(to), 2000);
     }
 
     function stepEl(n)      { return document.querySelector('.setup-step-section[data-step="' + n + '"]'); }
@@ -2873,7 +3685,7 @@ code {
             const pw  = document.getElementById('new_password').value;
             const pw2 = document.getElementById('confirm_password').value;
             if (pw !== '' && pw.length < 8) { showErr(3, 'Password must be at least 8 characters.'); return false; }
-            if (pw !== pw2)                  { showErr(3, 'Passwords do not match.'); return false; }
+            if (pw !== pw2)                 { showErr(3, 'Passwords do not match.'); return false; }
             return true;
         }
 
@@ -2911,6 +3723,40 @@ code {
         }
     }
 
+    window.shouldInstallComposer = function() {
+        if (!confirm(
+            'Install a single composer.phar file into the project root?'
+        )) {
+            return;
+        }
+
+        installComposer();
+    };
+
+    window.installComposer = async function () {
+        const resultEl = document.getElementById('composer-result');
+        const outputEl = document.getElementById('composer-output');
+
+        if (resultEl) { resultEl.style.display = 'none'; }
+        if (outputEl) { outputEl.innerHTML = ''; }
+
+        const form = new FormData();
+        form.set('action', 'composer');
+
+        try {
+            await submit(form, (data) => {
+                const success = !!data?.success;
+                if (outputEl) { outputEl.innerHTML = colorize(data.output); }
+                if (resultEl) { resultEl.style.display = 'block'; }
+            });
+        } catch (err) {
+            if (outputEl) {
+                outputEl.innerHTML = `<span class="t-err">✖ Request failed: ${err.message}</span>`;
+            }
+            if (resultEl) { resultEl.style.display = 'block'; }
+        }
+    };
+
     window.wizardNext = function (step) {
         if (!validateStep(step)) return;
         if (step < TOTAL) goToStep(step + 1);
@@ -2942,7 +3788,6 @@ code {
 <div class="auth-wrap">
     <div class="auth-card">
         <div class="auth-logo">
-            <span class="auth-logo-mark"></span>
             <span class="auth-logo-title">Luminova <span class="auth-logo-sub">/ Admin Manager</span></span>
         </div>
 
@@ -2993,10 +3838,7 @@ code {
             <svg class="icon" width="200" height="50" aria-label="PHP Luminova VCI">
                 <use href="#luminova-vci-logo"></use>
             </svg>
-            <span class="header-indicator" aria-hidden="true"></span>
-            <span class="header-title">Luminova</span>
-            <span class="header-sep hide-mobile" aria-hidden="true">/</span>
-            <span class="header-sub">Admin Manager</span>
+            <span class="header-title">Admin Dashboard</span>
             <span class="header-sep hide-mobile" aria-hidden="true">/</span>
             <span class="path-chip" title="<?= htmlspecialchars($state['packages']) ?>">
                 <?= htmlspecialchars($state['packages']) ?>
@@ -3063,48 +3905,103 @@ code {
     </header>
 
     <main class="main">
+        <?php if (VCI::isPathWithin($state['packages'], $appTargetPackage)): ?>
+            <?php if($vciResolveStatus === false): ?>
+                <div class="status-card">
+                    <div class="status-meta">
+                        <span class="status-label">Currently deployed</span>
+                            <span class="status-version" id="js-active-version">
+                                <?= htmlspecialchars($activeVersion) ?>
+                            </span>
+                            <p class="switch-notice visible">
+                                Application is using local luminova modules and does not enable Luminova shared module feature in <code>.luminova.php -> resolve.paths</code>. Select preferred version and click <code>"Apply"</code> to enable shared module
+                            </p>
+                    </div>
+                    <span class="status-indicator status-inactive" id="js-live-badge">Local</span>
+                </div>
+            <?php else: ?>
+                <div class="section-heading">Active Release</div>
+                <?php if(VCI::isModuleConflict()): ?>
+                    <div class="error-card" id="remove-notice">
+                        <div class="error-card-header">
+                            <span class="error-card-icon">⚠</span>
+                            <span class="error-card-title">Ambiguous Module Detected</span>
+                        </div>
 
-        <div class="section-heading">Active Release</div>
+                        <div class="error-card-body">
+                            This application is currently using both VCI shared module autoloading and local project modules. Removing local framework files can reduce disk usage and avoid duplicated resources.
 
-        <?php if (VCI::pathWithin($state['packages'], $appTargetPackage)): ?>
-        <div class="status-card">
-            <div class="status-meta">
-                <span class="status-label">Currently deployed</span>
-                <?php if ($activeVersion): ?>
-                    <span class="status-version" id="js-active-version"><?= htmlspecialchars($activeVersion) ?></span>
-                    <p class="switch-notice visible">
-                        <?php if ($isFollowCurrent): ?>
-                            Application follows the latest Luminova version.
-                        <?php else: ?>
-                            Application is locked to Luminova <?= htmlspecialchars($activeVersion) ?>.
-                        <?php endif; ?>
-                    </p>
-                <?php else: ?>
-                    <span class="status-none" id="js-active-version">none</span>
+                            <br><br>
+
+                            <strong>Remove local framework modules?</strong>
+
+                            <dl class="path-compare">
+                                <dt>/bootstrap/</dt>
+                                <dd>
+                                    Removes all files from <code>bootstrap/*</code>
+                                    except <code>bootstrap/constants.php</code>
+                                </dd>
+
+                                <dt>/system/</dt>
+                                <dd>
+                                    Removes all files from <code>system/*</code>
+                                    except <code>system/Boot.php</code> and
+                                    <code>system/plugins/*</code>
+                                </dd>
+                            </dl>
+                            <div style="margin-top:1rem;text-align:right">
+                                <button id="remove-btn" class="btn btn-primary-sm" type="button">
+                                    <span class="spinner"></span>
+                                    <span class="btn-label">Fix Conflict</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 <?php endif; ?>
-            </div>
-            <?php if ($activeVersion): ?>
-            <span class="status-live" id="js-live-badge">Live</span>
-            <?php endif; ?>
-        </div>
 
+                <div class="status-card">
+                    <div class="status-meta">
+                        <span class="status-label">Currently deployed</span>
+                        <?php if ($activeVersion): ?>
+                            <span class="status-version" id="js-active-version">
+                                <?= htmlspecialchars($activeVersion) ?>
+                            </span>
+                            <p class="switch-notice visible">
+                                <?php if ($isFollowCurrent): ?>
+                                    Application follows the latest Luminova stable version.
+                                <?php else: ?>
+                                    Application is locked to Luminova <?= htmlspecialchars($activeVersion) ?>.
+                                <?php endif; ?>
+                            </p>
+                        <?php else: ?>
+                            <span class="status-none" id="js-active-version">none</span>
+                        <?php endif; ?>
+                    </div>
+                    <?php if ($activeVersion): ?>
+                        <span class="status-indicator status-live" id="js-live-badge">Live</span>
+                    <?php else: ?>
+                        <span class="status-indicator status-inactive" id="js-live-badge">Inactive</span>
+                    <?php endif; ?>
+                </div>
+            <?php endif; ?>
         <?php else: ?>
-        <div class="error-card">
-            <div class="error-card-header">
-                <span class="error-card-icon">⚠</span>
-                <span class="error-card-title">Path Mismatch</span>
+            <div class="section-heading">Active Release</div>
+            <div class="error-card">
+                <div class="error-card-header">
+                    <span class="error-card-icon">⚠</span>
+                    <span class="error-card-title">Path Mismatch</span>
+                </div>
+                <div class="error-card-body">
+                    The target path in <code>.luminova.php</code> does not fall within the
+                    configured packages directory.
+                    <dl class="path-compare">
+                        <dt>Expected</dt>
+                        <dd><code><?= htmlspecialchars(VCI::buildCanonicalPath($state['packages'], $appTargetPackage)) ?></code></dd>
+                        <dt>Found</dt>
+                        <dd><code><?= htmlspecialchars($appTargetPackage) ?></code></dd>
+                    </dl>
+                </div>
             </div>
-            <div class="error-card-body">
-                The target path in <code>.luminova.php</code> does not fall within the
-                configured packages directory.
-                <dl class="path-compare">
-                    <dt>Expected</dt>
-                    <dd><code><?= htmlspecialchars(VCI::buildCanonicalPath($state['packages'], $appTargetPackage)) ?></code></dd>
-                    <dt>Found</dt>
-                    <dd><code><?= htmlspecialchars($appTargetPackage) ?></code></dd>
-                </dl>
-            </div>
-        </div>
         <?php endif; ?>
         <div class="section-heading">Switch Version</div>
 
@@ -3132,14 +4029,28 @@ code {
                             <option value="<?= $value ?>" <?= $isActive ? 'selected' : '' ?>>
                                 <?= $label ?>
                                 <?= $isActive  ? ' (active)'  : '' ?>
-                                <?= $isCurrent ? ' (current)' : '' ?>
+                                <?= $isCurrent ? ' (current-stable)' : '' ?>
                             </option>
                         <?php endforeach; ?>
                     </select>
                 </div>
-                <button class="btn btn-apply" id="apply-btn" type="button">
+                <button 
+                    class="btn btn-primary-sm" 
+                    id="apply-btn" 
+                    type="button" 
+                    title="Switch to the selected version and deploy it to the application."
+                    aria-describedby="switch-notice">
                     <span class="spinner"></span>
                     <span class="btn-label">Apply</span>
+                </button>
+                <button 
+                    class="btn btn-primary-sm" 
+                    id="import-btn" 
+                    type="button" 
+                    title="Import the selected version into project modules directory and disable shared module feature."
+                    aria-describedby="switch-notice">
+                    <span class="spinner"></span>
+                    <span class="btn-label">Localize</span>
                 </button>
             </div>
             <p class="switch-notice" id="switch-notice">
@@ -3148,7 +4059,7 @@ code {
 
             <?php else: ?>
             <p class="no-releases">
-                No releases installed. Run <code>luminova --install</code> first.
+                No releases installed. If you are system admin, run <code>luminova package --install</code> first.
             </p>
             <?php endif; ?>
         </div>
@@ -3186,25 +4097,32 @@ code {
             <div class="no-releases">No releases installed.</div>
             <?php endif; ?>
         </div>
-
     </main>
 
     <footer class="footer">
         <div class="footer-brand">
-            <span class="footer-dot" aria-hidden="true"></span>
             <span class="footer-name">
-                Luminova <span class="footer-name-sub">/ VCI</span> / <?= VCI::getData('auth_ip'); ?>
+                PHP Luminova Version Control Admin <span class="footer-name-sub">/ v<?= VCI::VERSION ?></span> &middot;
             </span>
+            <div class="footer-links">
+                <a 
+                    href="https://luminova.ng" 
+                    target="_blank" 
+                    rel="noopener noreferrer">Docs</a>
+                    <span class="footer-name-sub">/</span>
+                <a 
+                    href="https://github.com/luminovang/luminova-vci/" 
+                    target="_blank" 
+                    rel="noopener noreferrer">Github</a>
+            </div>
         </div>
         <div class="footer-right">
-            <div class="footer-links">
-                <a href="https://luminova.ng" target="_blank" rel="noopener noreferrer">Docs</a>
-                <a href="https://github.com/luminovang/luminova-vci/" target="_blank" rel="noopener noreferrer">Github</a>
-            </div>
             <span class="footer-sep-v" aria-hidden="true"></span>
             <span class="footer-session">
                 <span class="footer-session-dot" aria-hidden="true"></span>
                 Session &middot; <?= VCI::getRemainingSessionFormatted() ?>
+                <span class="footer-session-dot" aria-hidden="true"></span>
+                IP &middot; <?= VCI::getData('auth_ip'); ?>
             </span>
         </div>
     </footer>
@@ -3260,11 +4178,12 @@ code {
         }, { passive: true });
     }
 
-    const CSRF       = <?= json_encode(VCI::getData('csrf')) ?>;
-    const ACTIVE_VER = <?= json_encode($activeVersion) ?>;
+    let ACTIVE_VER = <?= json_encode($activeVersion) ?>;
 
     const selectEl    = document.getElementById('version-select');
     const applyBtn    = document.getElementById('apply-btn');
+    const importBtn   = document.getElementById('import-btn');
+    const removeBtn   = document.getElementById('remove-btn');
     const notice      = document.getElementById('switch-notice');
     const banner      = document.getElementById('result-banner');
     const termWrap    = document.getElementById('terminal-wrap');
@@ -3279,15 +4198,14 @@ code {
         notice.classList.toggle('visible', selectEl.value === ACTIVE_VER);
     }
 
-    function colorize(raw) {
-        return raw.split('\n').map(line => {
-            const s = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            if (/^✔|switched|autoload|Generating|updated/i.test(s)) return `<span class="t-ok">${s}</span>`;
-            if (/^⚠|warning/i.test(s))                              return `<span class="t-warn">${s}</span>`;
-            if (/^✖|error|failed/i.test(s))                         return `<span class="t-err">${s}</span>`;
-            if (/^\$/.test(s))                                      return `<span class="t-cmd">${s}</span>`;
-            return s;
-        }).join('\n');
+    function runOptimize(version){
+        const runOptimize = confirm(
+            `Your project is already set to '${version}'.\nRun composer autoload optimization instead?`
+        );
+
+        if (!runOptimize) return;
+
+        switchVersion('optimize', version);
     }
 
     /**
@@ -3327,6 +4245,59 @@ code {
         });
     }
 
+    function response(message, success){
+        banner.textContent = message;
+        banner.className = 'result-banner visible ' + (success ? 'success' : 'failure');
+    }
+
+    async function switchVersion(action, version) {
+        applyBtn.disabled = true;
+        applyBtn.classList.add('loading');
+
+        banner.className = 'result-banner';
+        banner.textContent = '';
+
+        termWrap.classList.remove('visible');
+        termBody.innerHTML = '';
+
+        try {
+            const form = new FormData();
+            form.set('action', action);
+            form.set('version', version);
+
+            await submit(form, (data) => {
+                const success = !!data?.success;
+
+                if (data.output) {
+                    termBody.innerHTML = colorize(data.output);
+                    termWrap.classList.add('visible');
+                    termBody.scrollTop = termBody.scrollHeight;
+                }
+
+                response((action === 'optimize') 
+                    ? (success 
+                        ? `✔ Composer optimize version ${version} autoload.` 
+                        : '✖ Composer optimize failed. See output above.')
+                    : (success 
+                        ? `✔ Version ${version} is now active.` 
+                        : '✖ Switch failed. See output above.'),
+                    success
+                );
+
+                if (success) {
+                    applyVersionToDom(version);
+                    showNotice();
+                    ACTIVE_VER = version;
+                }
+            });
+        } catch (error) {
+            response(`✖ Request failed: ${error.message}`, false);
+        } finally {
+            applyBtn.disabled = false;
+            applyBtn.classList.remove('loading');
+        }
+    }
+
     selectEl.addEventListener('change', showNotice);
     showNotice();
 
@@ -3338,55 +4309,91 @@ code {
     applyBtn.addEventListener('click', async () => {
         const version = selectEl.value;
 
-        if (version !== ACTIVE_VER) {
-            const ok = confirm(
-                `Switch to version ${version}?\n\n`
-                + `This will:\n`
-                + `  1. Update .luminova.php release path\n`
-                + `  2. Run composer dump-autoload`
-            );
-            if (!ok) return;
+        if (version === ACTIVE_VER) {
+            runOptimize(version);
+            return;
         }
 
-        applyBtn.disabled = true;
-        applyBtn.classList.add('loading');
-        banner.className  = 'result-banner';
-        termWrap.classList.remove('visible');
-        termBody.innerHTML = '';
+        const confirmed = confirm(
+            `Switch project luminova version to '${version}'?\n\n`
+            + 'This will:\n'
+            + '  1. Update .luminova.php release path\n'
+            + '  2. Run composer autoload optimization\n'
+            + '  3. Modify composer.json'
+        );
 
-        try {
-            const form = new FormData();
-            form.append('action',  'switch');
-            form.append('version', version);
-            form.append('csrf',    CSRF);
-
-            const res  = await fetch(window.location.href, { method: 'POST', body: form });
-            const data = await res.json();
-
-            if (data.output) {
-                termBody.innerHTML = colorize(data.output);
-                termWrap.classList.add('visible');
-                termBody.scrollTop = termBody.scrollHeight;
-            }
-
-            banner.textContent = data.success
-                ? `✔  Version ${version} is now active.`
-                : `✖  Switch failed — see output above.`;
-            banner.className = 'result-banner visible ' + (data.success ? 'success' : 'failure');
-
-            if (data.success) {
-                applyVersionToDom(version);
-                showNotice();
-            }
-
-        } catch (err) {
-            banner.textContent = '✖  Request failed: ' + err.message;
-            banner.className   = 'result-banner visible failure';
-        } finally {
-            applyBtn.disabled = false;
-            applyBtn.classList.remove('loading');
+        if (!confirmed) {
+            return;
         }
+
+        switchVersion('switch', version);
     });
+
+    importBtn.addEventListener('click', async () => {
+        const version = selectEl.value;
+
+        if (version === ACTIVE_VER) {
+            runOptimize(version);
+            return;
+        }
+
+        const confirmed = confirm(
+            `Importing '${version}' will copy framework files into project modules directory`
+            + '\nand disable VCI shared module feature.\n\n'
+            + 'This can increase disk usage.'
+        );
+
+        if (!confirmed) {
+            return;
+        }
+
+        switchVersion('import', version);
+    });
+
+    if(removeBtn !== null){
+        removeBtn.addEventListener('click', async () => {
+            removeBtn.disabled = true;
+            removeBtn.classList.add('loading');
+
+            banner.className = 'result-banner';
+            banner.textContent = '';
+
+            termWrap.classList.remove('visible');
+            termBody.innerHTML = '';
+
+            try {
+                const form = new FormData();
+                form.set('action', 'remove.local');
+
+                await submit(form, (data) => {
+                    const success = !!data?.success;
+
+                    if (data.output) {
+                        termBody.innerHTML = colorize(data.output);
+                        termWrap.classList.add('visible');
+                        termBody.scrollTop = termBody.scrollHeight;
+                    }
+
+                    response(success 
+                            ? `✔ Ambiguous local modules removed.` 
+                            : '✖ Failed to remove ambiguous modules. See output above.',
+                        success
+                    );
+
+                    if (success) {
+                        const removeNotice = document.getElementById('remove-notice');
+                        removeNotice.style.display = 'none';
+                        showNotice();
+                    }
+                });
+            } catch (error) {
+                response(`✖ Request failed: ${error.message}`, false);
+            } finally {
+                removeBtn.disabled = false;
+                removeBtn.classList.remove('loading');
+            }
+        });
+    }
 }());
 </script>
 <?php endif; ?>
