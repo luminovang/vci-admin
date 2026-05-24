@@ -165,7 +165,7 @@ unset($_admin);
 
 final class VCI
 {
-    public const VERSION = '1.0.0';
+    public const VERSION = '1.0.1';
 
     private const COMPOSER_UPDATE_MESSAGES = [
         1  => 'Composer autoload configuration updated successfully.',
