@@ -3893,7 +3893,7 @@ code {
 
         <nav class="header-right" aria-label="Site navigation">
             <a href="https://luminova.ng" class="btn btn-ghost" target="_blank" rel="noopener noreferrer">Luminova</a>
-            <a href="https://github.com/luminovang/luminova-vci/" class="btn btn-ghost" target="_blank" rel="noopener noreferrer">Github</a>
+            <a href="https://github.com/luminovang/vci-admin/" class="btn btn-ghost" target="_blank" rel="noopener noreferrer">Github</a>
             <form method="POST" style="display:inline">
                 <input type="hidden" name="action" value="reset.path">
                 <button class="btn btn-ghost" type="submit">Update Setup</button>
@@ -3926,7 +3926,10 @@ code {
                 <a href="https://luminova.ng" class="btn btn-ghost" target="_blank" rel="noopener noreferrer">
                     Luminova &#x2197;
                 </a>
-                <a href="https://github.com/luminovang/luminova-vci/" class="btn btn-ghost" target="_blank" rel="noopener noreferrer">
+                <a href="https://github.com/luminovang/vci/" class="btn btn-ghost" target="_blank" rel="noopener noreferrer">
+                    Github (CLI) &#x2197;
+                </a>
+                <a href="https://github.com/luminovang/vci-admin/" class="btn btn-ghost" target="_blank" rel="noopener noreferrer">
                     Github &#x2197;
                 </a>
             </div>
@@ -4151,9 +4154,14 @@ code {
                     rel="noopener noreferrer">Docs</a>
                     <span class="footer-name-sub">/</span>
                 <a 
-                    href="https://github.com/luminovang/luminova-vci/" 
+                    href="https://github.com/luminovang/vci-admin/" 
                     target="_blank" 
                     rel="noopener noreferrer">Github</a>
+                <span class="footer-name-sub">/</span>
+                <a 
+                    href="https://github.com/luminovang/vci/" 
+                    target="_blank" 
+                    rel="noopener noreferrer">Github (CLI)</a>
             </div>
         </div>
         <div class="footer-right">
