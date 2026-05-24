@@ -1,11 +1,11 @@
-![PHP Luminova VCI](https://github.com/luminovang/luminova-vci-admin/blob/main/logo.svg?v=2)
+![PHP Luminova VCI](https://github.com/luminovang/vci-admin/blob/main/logo.svg?v=2)
 
 # PHP Luminova — VCI Admin Dashboard
 
 **Version Control Interface for the PHP Luminova Framework**
 
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-777BB4?logo=php&logoColor=white)](https://php.net)
-[![License](https://img.shields.io/github/license/luminovang/luminova-vci-admin)](LICENSE)
+[![License](https://img.shields.io/github/license/luminovang/vci-admin)](LICENSE)
 [![Luminova](https://img.shields.io/badge/Luminova-VCI-0750e1)](https://luminova.ng)
 
 ---
@@ -61,7 +61,7 @@ Your project's `.luminova.php` points to a specific release (or to `current` to 
 | PHP | 8.0 (8.2+ recommended) |
 | PHP extensions | `session`, `json`, `tokenizer` |
 | Composer | Any recent version (or `composer.phar` in project root) |
-| Luminova VCI CLI | [luminovang/luminova-vci](https://github.com/luminovang/luminova-vci) |
+| Luminova VCI CLI | [luminovang/luminova-vci](https://github.com/luminovang/vci) |
 | Filesystem | Write access to your project root |
 
 > **Password hashing:** 
@@ -76,9 +76,9 @@ VCI is a single self-contained PHP file with no Composer dependency and no frame
 **Step 1 — Download**
 
 ```bash
-wget https://raw.githubusercontent.com/luminovang/luminova-vci-admin/main/vci.php
+wget https://raw.githubusercontent.com/luminovang/vci-admin/main/vci.php
 # or
-git clone https://github.com/luminovang/luminova-vci-admin.git
+git clone https://github.com/luminovang/vci-admin.git
 ```
 
 **Step 2 — Place the file**
@@ -511,4 +511,4 @@ These constants are defined near the top of `vci.php`. Values in `.luminova.admi
 
 ---
 
-Built for [PHP Luminova](https://luminova.ng) &nbsp;·&nbsp; [GitHub](https://github.com/luminovang/luminova-vci)
+Built for [PHP Luminova](https://luminova.ng) &nbsp;·&nbsp; [GitHub](https://github.com/luminovang/vci)
