@@ -409,7 +409,7 @@ final class VCI
      *
      * @param string $params Optional query-string fragment, e.g. {@code 'action=update'}.
      *
-     * @return never
+     * @return void
      */
     public static function redirect(string $params = ''): void 
     {
@@ -1392,7 +1392,7 @@ final class VCI
      *
      * Always terminates by calling {@see self::redirect()} — never returns normally.
      *
-     * @return never
+     * @return void
      */
     public static function login(): void
     {
@@ -1497,7 +1497,7 @@ final class VCI
      *
      * @param bool $isJson When true, emit a JSON error response instead of redirecting.
      *
-     * @return never Always terminates execution.
+     * @return void Always terminates execution.
      */
     public static function logout(bool $isJson = false): void
     {
@@ -1677,6 +1677,11 @@ final class VCI
         $log = [];
         $err = null;
         $updated = self::writeAppConfig($newPath, $packagesDir, false, $err);
+        $metadata = self::restoreMetadata($newPath);
+
+        $log[] = ($metadata > 0)
+            ? "✔ {$metadata} version {$version} specific files was restored"
+            : "⚠ Could not restore {$version} specific files.";
 
         $log[] = $updated
             ? "✔ .luminova.php updated → {$version}"
@@ -1698,6 +1703,50 @@ final class VCI
     }
 
     /**
+     * Restore framework metadata files into the active application structure.
+     *
+     * This method resolves the target release path, then restores
+     * project-specific framework files from the `.metadata` directory
+     * back into their original locations.
+     *
+     * Only files that exist in metadata and are successfully copied
+     * will be counted as restored.
+     *
+     * @param string $newPath The release or build directory path.
+     * 
+     * @return int Number of successfully restored files.
+     */
+    private static function restoreMetadata(string $newPath): int
+    {
+        $basePath = readlink($newPath) ?: realpath($newPath) ?: $newPath;
+        $basePath = rtrim($basePath, '/');
+
+        $metadataPath = $basePath . '/.metadata';
+
+        $files = [
+            PROJECT_APP_ROOT . 'system/Boot.php'
+                => $metadataPath . '/system/Boot.php',
+
+            PROJECT_APP_ROOT . 'bootstrap/constants.php'
+                => $metadataPath . '/bootstrap/constants.php',
+        ];
+
+        $restored = 0;
+
+        foreach ($files as $destination => $source) {
+            if (!is_file($source)) {
+                continue;
+            }
+
+            if (@copy($source, $destination)) {
+                $restored++;
+            }
+        }
+
+        return $restored;
+    }
+
+    /**
      * Remove ambiguous local framework files and regenerate the Composer autoloader.
      *
      * Validates the CSRF token and confirms a module conflict exists before pruning
@@ -1706,7 +1755,7 @@ final class VCI
      * preserved. Runs {@code composer dump-autoload --no-dev --optimize} after
      * cleanup and returns combined output as a JSON response.
      *
-     * @return never Always terminates with a JSON response.
+     * @return void Always terminates with a JSON response.
      */
     public static function removeAndOptimizeModule(): void
     {
@@ -1750,7 +1799,7 @@ final class VCI
      *
      * @param array $state Runtime state array from {@see self::initRuntimeState()}.
      *
-     * @return never Always terminates with a JSON response.
+     * @return void Always terminates with a JSON response.
      */
     private static function importModuleVersion(array $state): void
     {
@@ -1772,10 +1821,16 @@ final class VCI
             self::json(false, "Target version does not exist: {$version}");
         }
 
+        $newPath = rtrim($newPath, '/');
+        $metadataPath = $newPath . '/.metadata';
         $tmpRoot = PROJECT_APP_ROOT . 'writeable/modules-tmp/';
+
         $targets = [
             "{$newPath}/bootstrap/" => "{$tmpRoot}bootstrap/",
-            "{$newPath}/system/"    => "{$tmpRoot}system/"
+            "{$newPath}/system/"    => "{$tmpRoot}system/",
+
+            "{$metadataPath}/bootstrap/" => "{$tmpRoot}bootstrap/",
+            "{$metadataPath}/system/"    => "{$tmpRoot}system/"
         ];
 
         $imported = 0;
