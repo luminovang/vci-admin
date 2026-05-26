@@ -9,13 +9,14 @@ ini_set('display_startup_errors', '0');
 // ══════════════════════════════════════════════════════════════
 // PATHS — initialization must come before any code that references these constants
 // ══════════════════════════════════════════════════════════════
-define('__SELF__',            $_SERVER['PHP_SELF']);
-define('PROJECT_APP_ROOT',     __DIR__ . '/../');
-define('PATH_CONFIG_FILE',     PROJECT_APP_ROOT . '.luminova.admin.php');
-define('PATH_APP_CONFIG_FILE', PROJECT_APP_ROOT . '.luminova.php');
-define('PATH_COMPOSER_JSON',   PROJECT_APP_ROOT . 'composer.json');
-define('PATH_TMP',             PROJECT_APP_ROOT . 'writeable/vci-tmp');
-define('PATH_LOGS',            PROJECT_APP_ROOT . 'writeable/logs/vci.log');
+define('__SELF__',                  $_SERVER['PHP_SELF']);
+define('PROJECT_APP_ROOT',           rtrim(realpath(__DIR__ . '/../'), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR);
+define('PATH_ADMIN_CONFIG_FILE',     PROJECT_APP_ROOT . '.luminova.admin.php');
+define('PATH_APP_VER_CONFIG_FILE',   PROJECT_APP_ROOT . '.luminova.php');
+define('PATH_COMPOSER_JSON',         PROJECT_APP_ROOT . 'composer.json');
+define('PATH_TMP',                   PROJECT_APP_ROOT . 'writeable/vci-tmp');
+define('PATH_LOGS',                  PROJECT_APP_ROOT . 'writeable/logs/vci.log');
+
 
 // ══════════════════════════════════════════════════════════════
 // ADMIN CONFIG DEFAULTS — Login and session settings.
@@ -190,7 +191,7 @@ function _composer_binary(): string
         }
 
         if (_verify_binary($path, true)) {
-            return $composer = escapeshellarg($path);
+            return $composer = $path;
         }
     }
 
@@ -239,12 +240,12 @@ function _verify_binary(string $bin, bool $phpWrapper = false): bool
 
 // ══════════════════════════════════════════════════════════════
 // BOOTSTRAP ADMIN CONFIG
-// Values stored in PATH_CONFIG_FILE override the defaults below.
+// Values stored in PATH_ADMIN_CONFIG_FILE override the defaults below.
 // ══════════════════════════════════════════════════════════════
 $_admin = [];
 
-if (@is_file(PATH_CONFIG_FILE)) {
-    $_admin = include PATH_CONFIG_FILE;
+if (@is_file(PATH_ADMIN_CONFIG_FILE)) {
+    $_admin = include PATH_ADMIN_CONFIG_FILE;
 }
 
 define('ADMIN_PASSWORD_HASH',  $_admin['password_hash'] ?? DEFAULT_PASSWORD_HASH);
@@ -367,10 +368,7 @@ final class VCI
             );
         }
 
-        $root = rtrim(PROJECT_APP_ROOT, DIRECTORY_SEPARATOR)
-            . DIRECTORY_SEPARATOR;
-
-        $target = $root . 'composer.phar';
+        $target = PROJECT_APP_ROOT . 'composer.phar';
         $temp   = $target . '.tmp';
 
         if (is_file($target)) {
@@ -470,6 +468,8 @@ final class VCI
                 'Composer PHAR verification failed.'
             );
         }
+
+        self::writeAdminConf(composerBin: $target);
 
         self::json(true, [
             '✔ Composer PHAR installed to project root.',
@@ -980,7 +980,7 @@ final class VCI
     /**
      * Load and cache the persisted VCI admin configuration array.
      *
-     * Reads {@see PATH_CONFIG_FILE} on the first call and caches the result
+     * Reads {@see PATH_ADMIN_CONFIG_FILE} on the first call and caches the result
      * in-request. Subsequent calls within the same request return the cached value
      * without touching the filesystem.
      *
@@ -995,8 +995,8 @@ final class VCI
      */
     public static function getAdminConf(): array
     {
-        if(is_file(PATH_CONFIG_FILE) && empty(self::$cache['admin.conf'])){
-            self::$cache['admin.conf'] = include PATH_CONFIG_FILE;
+        if(is_file(PATH_ADMIN_CONFIG_FILE) && empty(self::$cache['admin.conf'])){
+            self::$cache['admin.conf'] = include PATH_ADMIN_CONFIG_FILE;
         }
 
         return self::$cache['admin.conf'] ?? [];
@@ -1097,7 +1097,7 @@ final class VCI
         if (!self::writeAdminConf($packagesDir, $luminovaPath, $composerBin, $phpBin, $passwordHash)) {
             self::setData(
                 'setup_error',
-                'Could not write ' . PATH_CONFIG_FILE . ' — check directory permissions.'
+                'Could not write ' . PATH_ADMIN_CONFIG_FILE . ' — check directory permissions.'
             );
             self::redirect($query);
         }
@@ -1139,7 +1139,7 @@ final class VCI
 
         $data = "<?php\nreturn " . var_export(self::$cache['admin.conf'], true) . ";\n";
 
-        return file_put_contents(PATH_CONFIG_FILE, $data) !== false;
+        return file_put_contents(PATH_ADMIN_CONFIG_FILE, $data) !== false;
     }
 
     /** Start a secure session and generate a CSRF token when needed. */
@@ -1698,8 +1698,8 @@ final class VCI
      */
     public static function appConf(?string $key = null): mixed
     {
-        if (!isset(self::$cache['appConf']) && is_file(PATH_APP_CONFIG_FILE)) {
-            self::$cache['appConf'] = include PATH_APP_CONFIG_FILE;
+        if (!isset(self::$cache['appConf']) && is_file(PATH_APP_VER_CONFIG_FILE)) {
+            self::$cache['appConf'] = include PATH_APP_VER_CONFIG_FILE;
         }
 
         if (!is_array(self::$cache['appConf'])) {
@@ -2019,6 +2019,16 @@ final class VCI
         self::json(true, implode("\n", $log));
     }
 
+    private static function resetSetup(): void 
+    {
+        if(is_file(PATH_ADMIN_CONFIG_FILE)){
+            @unlink(PATH_ADMIN_CONFIG_FILE);
+        }
+
+        self::logout();
+        self::redirect();
+    }
+
     /**
      * Return true when {@code composer.json} exists in the project root.
      *
@@ -2266,7 +2276,7 @@ final class VCI
          */
         COMMENT;
 
-        if (is_file(PATH_APP_CONFIG_FILE)) {
+        if (is_file(PATH_APP_VER_CONFIG_FILE)) {
             $conf = self::appConf();
         }
 
@@ -2290,11 +2300,11 @@ final class VCI
 
         $content = "<?php\n{$comment}\nreturn " . var_export($conf, true) . ";\n";
 
-        if(file_put_contents(PATH_APP_CONFIG_FILE, $content) !== false){
+        if(file_put_contents(PATH_APP_VER_CONFIG_FILE, $content) !== false){
             return true;
         }
 
-        if (!is_writable(PATH_APP_CONFIG_FILE)) {
+        if (!is_writable(PATH_APP_VER_CONFIG_FILE)) {
             $err = 'Error ".luminova.php" file is not writable.';
         }
 
@@ -2386,7 +2396,7 @@ final class VCI
     public static function initRuntimeState(): array
     {
         [$packagesDir, $luminovaBin] = self::getPaths();
-        $needsSetup = ($packagesDir === '') || !file_exists(PATH_CONFIG_FILE);
+        $needsSetup = ($packagesDir === '') || !file_exists(PATH_ADMIN_CONFIG_FILE);
 
         return [
             'packages'      => $packagesDir,
@@ -2423,6 +2433,9 @@ final class VCI
             case 'logout':
                 self::logout();
                 break;
+            case 'composer':
+                self::getComposer();
+                break;
             case 'switch':
                 self::forceLogin(true);
                 self::handleSwitch($state);
@@ -2440,9 +2453,9 @@ final class VCI
                 self::forceLogin();
                 self::redirect('?action=update');
                 break;
-            case 'composer':
+             case 'reset.setup':
                 self::forceLogin();
-                self::getComposer();
+                self::resetSetup();
                 break;
             case 'remove.local':
                 self::forceLogin(true);
@@ -3893,6 +3906,11 @@ code {
                 const success = !!data?.success;
                 if (outputEl) { outputEl.innerHTML = colorize(data.output); }
                 if (resultEl) { resultEl.style.display = 'block'; }
+
+                if(success){
+                    const bin = <?= json_encode(PROJECT_APP_ROOT . 'composer.phar') ?>;
+                    document.getElementById('composer_bin').value = bin;
+                }
             });
         } catch (err) {
             if (outputEl) {
@@ -3995,6 +4013,10 @@ code {
             <form method="POST" style="display:inline">
                 <input type="hidden" name="action" value="reset.path">
                 <button class="btn btn-ghost" type="submit">Update Setup</button>
+            </form>
+            <form method="POST" style="display:inline">
+                <input type="hidden" name="action" value="reset.setup">
+                <button class="btn btn-ghost" type="submit">Reset Setup</button>
             </form>
             <form method="POST" style="display:inline">
                 <input type="hidden" name="action" value="logout">
