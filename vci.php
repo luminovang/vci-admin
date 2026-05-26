@@ -7,8 +7,9 @@ ini_set('display_errors', '0');
 ini_set('display_startup_errors', '0');
 
 // ══════════════════════════════════════════════════════════════
-// PATHS — defined before everything so constants can reference them
+// PATHS — initialization must come before any code that references these constants
 // ══════════════════════════════════════════════════════════════
+define('__SELF__',            $_SERVER['PHP_SELF']);
 define('PROJECT_APP_ROOT',     __DIR__ . '/../');
 define('PATH_CONFIG_FILE',     PROJECT_APP_ROOT . '.luminova.admin.php');
 define('PATH_APP_CONFIG_FILE', PROJECT_APP_ROOT . '.luminova.php');
@@ -16,6 +17,35 @@ define('PATH_COMPOSER_JSON',   PROJECT_APP_ROOT . 'composer.json');
 define('PATH_TMP',             PROJECT_APP_ROOT . 'writeable/vci-tmp');
 define('PATH_LOGS',            PROJECT_APP_ROOT . 'writeable/logs/vci.log');
 
+// ══════════════════════════════════════════════════════════════
+// ADMIN CONFIG DEFAULTS — Login and session settings.
+//
+// Generate a password hash:
+//   php -r "echo password_hash('admin', PASSWORD_ARGON2ID);"
+// ══════════════════════════════════════════════════════════════
+define('PASSWORD_ALGO',       defined('PASSWORD_ARGON2ID') ? PASSWORD_ARGON2ID : PASSWORD_DEFAULT);
+define('DEFAULT_PASSWORD_HASH', (PASSWORD_ALGO === PASSWORD_ARGON2ID) 
+    ? '$argon2id$v=19$m=65536,t=4,p=1$tb8BPE1vmNCPl5fST4tHzQ$V2KqGZ3T8jHvu5iUSu1oItzbMAJcTGp2cIhLoX/MzPg' 
+    : '$2y$10$RaLLDqoINJGuVyU0pp22lOd0QAPkpkV7uZY7KMX5AI7NQs01ebpYW'
+);
+define('ADMIN_USERNAME',     'admin');
+define('LOGIN_MAX_ATTEMPTS',   5);
+define('FAILED_LOGIN_LOCK_WINDOW_TS',   300); // 5 minutes
+define('SESSION_LIFETIME',   3600);
+define('SESSION_STORAGE',    '__VCI_MANAGER__');
+// 1 (enable), 2 (enable and delete old session id)
+define('SESSION_REGENERATE_ID',    0);
+
+/**
+ * Used to download composer.phar if composer is not installed 
+ * in environment
+ */
+define('COMPOSER_PHAR_VERSION',  'latest-stable');
+
+
+// ══════════════════════════════════════════════════════════════
+// TEMP DIRECTORY CONFIGURATION — ensures a writable temp directory is available.
+// ══════════════════════════════════════════════════════════════
 if (!is_dir(PATH_TMP)) {
     mkdir(PATH_TMP, 0777, true);
 }
@@ -58,51 +88,6 @@ function _log(string $message, string $severity, string $file, int $line): bool 
     return error_log($log, 3, PATH_LOGS);
 }
 
-/**
- * Detect the absolute path of the PHP CLI executable.
- *
- * Tries {@code command -v php} first, then iterates a platform-specific list of
- * well-known paths (XAMPP, Homebrew, {@see PHP_BINDIR}, etc.). Returns the first
- * candidate that exists and is executable.
- *
- * @return string|null Absolute path to the PHP binary, or null if none is found.
- */
-function _php_binary(): ?string
-{
-    $candidates = [
-        trim((string) shell_exec('command -v php')) ?: null,
-    ];
-
-    if (PHP_OS_FAMILY === 'Windows') {
-        $candidates = array_merge($candidates, [
-            'C:\\php\\php.exe',
-            getenv('PHP_PATH') ?: null,
-            'C:\\xampp\\php\\php.exe'
-        ]);
-    } else {
-        $candidates = array_merge($candidates, [
-            '/usr/bin/php',
-            '/usr/local/bin/php',
-            '/opt/homebrew/bin/php',
-            PHP_BINDIR . '/php',
-            'php',
-            PHP_BINARY
-        ]);
-    }
-
-    foreach ($candidates as $php) {
-        if(!$php){
-            continue;
-        }
-
-        if (is_file($php) && is_executable($php)) {
-            return $php;
-        }
-    }
-
-    return null;
-}
-
 set_error_handler(function ($severity, $message, $file, $line) {
     _log($message, 'ERROR', $file, $line);
     return true;
@@ -115,6 +100,143 @@ register_shutdown_function(function () {
     }
 });
 
+/**
+ * Resolve a usable PHP CLI binary path.
+ *
+ * This method first checks whether `php` is available from the
+ * current shell environment. If not found, it falls back to
+ * common installation paths and known runtime binaries.
+ *
+ * @return string|null Return the PHP binary command or path,
+ *                     otherwise null if not found.
+ */
+function _php_binary(): ?string
+{
+    static $php = null;
+
+    if ($php !== null) {
+        return $php;
+    }
+
+    $lookup = (PHP_OS_FAMILY === 'Windows')
+        ? 'where php 2>nul'
+        : 'command -v php 2>/dev/null';
+
+    if (trim((string) shell_exec($lookup)) !== '') {
+        return $php = 'php';
+    }
+
+    $candidates = (PHP_OS_FAMILY === 'Windows')
+        ? [
+            getenv('PHP_PATH') ?: null,
+            'C:\\php\\php.exe',
+            'C:\\xampp\\php\\php.exe',
+            PHP_BINARY,
+        ]
+        : [
+            '/usr/bin/php',
+            '/usr/local/bin/php',
+            '/opt/homebrew/bin/php',
+            PHP_BINDIR . '/php',
+            PHP_BINARY,
+        ];
+
+    foreach ($candidates as $candidate) {
+        if (!$candidate) {
+            continue;
+        }
+
+        if (_verify_binary($candidate)) {
+            return $php = $candidate;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Resolve a usable Composer executable command.
+ *
+ * This method first attempts to locate a globally installed
+ * Composer binary. If unavailable, it falls back to executing
+ * a local `composer.phar` file using the resolved PHP binary.
+ *
+ * @return string Return the Composer executable command.
+ */
+function _composer_binary(): string
+{
+    static $composer = null;
+
+    if ($composer !== null) {
+        return $composer;
+    }
+
+    $lookup = (PHP_OS_FAMILY === 'Windows')
+        ? 'where composer 2>nul'
+        : 'command -v composer 2>/dev/null';
+
+    if (trim((string) shell_exec($lookup)) !== '') {
+        return $composer = 'composer';
+    }
+
+    $paths = [
+        PROJECT_APP_ROOT . 'composer.phar',
+        '/usr/local/bin/composer',
+    ];
+
+    foreach ($paths as $path) {
+        if (!$path || !is_file($path)) {
+            continue;
+        }
+
+        if (_verify_binary($path, true)) {
+            return $composer = escapeshellarg($path);
+        }
+    }
+
+    return $composer = 'composer';
+}
+
+/**
+ * Verify that a binary or executable command is usable.
+ *
+ * This method checks whether the provided executable exists
+ * and can successfully respond to a version command.
+ *
+ * @param string $bin The binary command or executable path.
+ * @param bool $phpWrapper Whether to execute the binary using PHP.
+ *
+ * @return bool Return true if the binary is valid and executable,
+ *              otherwise false.
+ */
+function _verify_binary(string $bin, bool $phpWrapper = false): bool
+{
+    if (str_contains($bin, DIRECTORY_SEPARATOR)) {
+        if (!is_file($bin)) {
+            return false;
+        }
+
+        if (
+            !$phpWrapper &&
+            !defined('PHP_WINDOWS_VERSION_MAJOR') &&
+            !is_executable($bin)
+        ) {
+            return false;
+        }
+    }
+
+    $command = $phpWrapper
+        ? escapeshellarg(_php_binary() ?? PHP_BINARY) . ' ' . escapeshellarg($bin) . ' --version'
+        : escapeshellarg($bin) . ' --version';
+
+    $output = [];
+    $status = 1;
+
+    @exec($command, $output, $status);
+
+    return ($status === 0 && $output !== []);
+}
+
 // ══════════════════════════════════════════════════════════════
 // BOOTSTRAP ADMIN CONFIG
 // Values stored in PATH_CONFIG_FILE override the defaults below.
@@ -125,44 +247,17 @@ if (@is_file(PATH_CONFIG_FILE)) {
     $_admin = include PATH_CONFIG_FILE;
 }
 
-// ══════════════════════════════════════════════════════════════
-// STATIC CONFIGURATION
-//
-// Generate a password hash:
-//   php -r "echo password_hash('admin', PASSWORD_ARGON2ID);"
-//
-// All values below are overridden by PATH_CONFIG_FILE when present.
-// ══════════════════════════════════════════════════════════════
-define('__SELF__',            $_SERVER['PHP_SELF']);
-define('PASSWORD_ALGO',       defined('PASSWORD_ARGON2ID') ? PASSWORD_ARGON2ID : PASSWORD_DEFAULT);
-define('DEFAULT_PASSWORD_HASH', (PASSWORD_ALGO === PASSWORD_ARGON2ID) 
-    ? '$argon2id$v=19$m=65536,t=4,p=1$tb8BPE1vmNCPl5fST4tHzQ$V2KqGZ3T8jHvu5iUSu1oItzbMAJcTGp2cIhLoX/MzPg' 
-    : '$2y$10$RaLLDqoINJGuVyU0pp22lOd0QAPkpkV7uZY7KMX5AI7NQs01ebpYW'
-);
-define('ADMIN_USERNAME',     'admin');
-define('SESSION_LIFETIME',   3600);
-define('LOGIN_MAX_ATTEMPTS',   5);
-define('FAILED_LOGIN_LOCK_WINDOW_TS',   300); // 5 minutes
-define('SESSION_STORAGE',    '__VCI_MANAGER__');
-
- // 1 (enable), 2 (enable and delete old session id)
-define('SESSION_REGENERATE_ID',    0);
 define('ADMIN_PASSWORD_HASH',  $_admin['password_hash'] ?? DEFAULT_PASSWORD_HASH);
-define('COMPOSER_BIN',         $_admin['composer_bin'] ?? (
-    @is_file(PROJECT_APP_ROOT . 'composer.phar') ? PROJECT_APP_ROOT . 'composer.phar' : '/usr/local/bin/composer'
-));
 define('PHP_BIN',              $_admin['php_bin'] ?? _php_binary());
+define('COMPOSER_BIN',         $_admin['composer_bin'] ?? _composer_binary());
 define('LUMINOVA_BIN',         $_admin['luminova_bin']  ?? '');
 define('ALLOWED_IP_ADDRESSES', $_admin['allowed_ip_addresses']  ?? []);
-
-/**
- * Used to download composer.phar if composer is not installed 
- * in environment
- */
-define('COMPOSER_PHAR_VERSION',  'latest-stable');
-
 unset($_admin);
 
+// ══════════════════════════════════════════════════════════════
+// VCI CLASS DEFINITION
+// Contains static methods for config management, path resolution, IP validation, and other utilities.
+// ══════════════════════════════════════════════════════════════
 final class VCI
 {
     public const VERSION = '1.0.1';
@@ -2360,6 +2455,9 @@ final class VCI
     }
 }
 
+// ══════════════════════════════════════════════════════════════
+// ── Initialization and Request Handling
+// ══════════════════════════════════════════════════════════════
 VCI::start();
 $state = VCI::initRuntimeState();
 $isUpdate = false;
