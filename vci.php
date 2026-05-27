@@ -17,7 +17,6 @@ define('PATH_COMPOSER_JSON',         PROJECT_APP_ROOT . 'composer.json');
 define('PATH_TMP',                   PROJECT_APP_ROOT . 'writeable/vci-tmp');
 define('PATH_LOGS',                  PROJECT_APP_ROOT . 'writeable/logs/vci.log');
 
-
 // ══════════════════════════════════════════════════════════════
 // ADMIN CONFIG DEFAULTS — Login and session settings.
 //
@@ -138,6 +137,7 @@ function _php_binary(): ?string
             '/usr/bin/php',
             '/usr/local/bin/php',
             '/opt/homebrew/bin/php',
+            '/Applications/XAMPP/xamppfiles/bin/php',
             PHP_BINDIR . '/php',
             PHP_BINARY,
         ];
@@ -325,16 +325,52 @@ final class VCI
      *
      * @return string|null Absolute home directory path, or null when undetermined.
      */
-    private static function userHome(): ?string
+    public static function userHome(): ?string
     {
-        return self::$cache['home'] ??= (
-            getenv(defined('PHP_WINDOWS_VERSION_MAJOR') ? 'APPDATA' : 'HOME') ?: (function () {
-                $info = function_exists('posix_getpwuid')
-                    ? @posix_getpwuid(posix_getuid())
-                    : null;
-                return $info['dir'] ?? null;
-            })()
-        );
+        if(self::$cache['home'] !== null){
+            return self::$cache['home'];
+        }
+
+        if (self::isWindows()) {
+            return self::$cache['home'] = getenv('USERPROFILE')
+                ?: (
+                    (getenv('HOMEDRIVE') && getenv('HOMEPATH'))
+                        ? getenv('HOMEDRIVE') . getenv('HOMEPATH')
+                        : null
+                );
+        }
+
+        $home = getenv('HOME');
+
+        if ($home !== false && $home !== '') {
+            return self::$cache['home'] = $home;
+        }
+
+        if (function_exists('posix_getpwuid') && function_exists('posix_getuid')) {
+            $info = posix_getpwuid(posix_getuid());
+
+            return self::$cache['home'] = $info['dir'] ?? null;
+        }
+
+        return self::$cache['home'] = null;
+    }
+
+    /**
+     * Determine if the current operating system is Windows.
+     *
+     * Checks multiple indicators to reliably detect Windows environments,
+     * including PHP_OS_FAMILY, DIRECTORY_SEPARATOR, PHP_OS string, and
+     * the presence of PHP_WINDOWS_VERSION_MAJOR constant.
+     *
+     * @return bool True when running on a Windows OS, otherwise false.
+     */
+    private static function isWindows(): bool
+    {
+        return PHP_OS_FAMILY === 'Windows'
+            || DIRECTORY_SEPARATOR === '\\'
+            || str_contains(strtolower(PHP_OS), 'win')
+            || defined('PHP_WINDOWS_VERSION_MAJOR') ;
+        
     }
 
     /**
@@ -785,10 +821,6 @@ final class VCI
             if ($home) {
                 $paths[] = "{$home}/luminova";
                 $paths[] = "{$home}/.local/bin/luminova";
-
-                if (defined('PHP_WINDOWS_VERSION_MAJOR')) {
-                    $paths[] = "{$home}/luminova";
-                }
             }
         }
 
