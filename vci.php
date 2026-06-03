@@ -261,7 +261,7 @@ unset($_admin);
 // ══════════════════════════════════════════════════════════════
 final class VCI
 {
-    public const VERSION = '1.0.1';
+    public const VERSION = '1.0.2';
 
     private const COMPOSER_UPDATE_MESSAGES = [
         1  => 'Composer autoload configuration updated successfully.',
@@ -2144,11 +2144,13 @@ final class VCI
         }
 
         $updateVer = false;
+        $changes = 0;
         $ver = self::$cache['admin.conf']['luminova_ver'] ?? "^3.7";
 
         if($newPath === null){
             if (!isset($json['require']['luminovang/framework'])) {
                 $json['require']['luminovang/framework'] = $ver;
+                $changes = 1;
             }
         }elseif (isset($json['require']['luminovang/framework'])) {
             $updateVer = true;
@@ -2159,7 +2161,6 @@ final class VCI
         }
 
         $newPsr4 = [];
-        $changes = 0;
 
         foreach ($psr4 as $namespace => $path) {
 
@@ -2171,8 +2172,8 @@ final class VCI
             }
 
             $suffix = match (true) {
-                str_starts_with($trimmed, 'Luminova\\Funcs\\') => 'bootstrap',
-                $trimmed === 'Luminova\\' => 'system',
+                str_starts_with($trimmed, 'Luminova\\Funcs\\') => 'bootstrap/',
+                $trimmed === 'Luminova\\' => 'system/',
                 default => null
             };
 
@@ -2181,27 +2182,25 @@ final class VCI
                 continue;
             }
 
-            $newValue = "{$suffix}/";
-
             if($newPath === null){
-                if ($path === $newValue || $path === ["{$suffix}/"]) {
+                if ($path === $suffix || $path === [$suffix]) {
                     $newPsr4[$namespace] = $path;
                     continue;
                 }
 
-                $newPsr4[$namespace] = ["{$suffix}/"];
+                $newPsr4[$namespace] = [$suffix];
                 $changes++;
                 continue;
             }
 
-            if ($path === $newValue || $path === ["{$suffix}/", "{$newPath}/{$suffix}/"]) {
+            if ($path === [$suffix, "{$newPath}/{$suffix}"]) {
                 $newPsr4[$namespace] = $path;
                 continue;
             }
 
             $newPsr4[$namespace] = [
-                "{$suffix}/",
-                "{$newPath}/{$suffix}/"
+                $suffix,
+                "{$newPath}/{$suffix}"
             ];
 
             $changes++;
