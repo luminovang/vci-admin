@@ -37,7 +37,7 @@ Luminova **VCI Admin (`vci.php`)** is a single-file, browser-based admin panel f
 
 By default every Luminova project ships with its own copy of the framework files. VCI replaces those per-project copies with a single shared installation stored in a central directory on your server (e.g. `/opt/luminova`).
 
-Each project's `.luminova.php` contains a `target` path pointing to one release inside that shared directory. Clicking **Apply** in the VCI dashboard rewrites that path and re-runs `composer dump-autoload` — no downtime, no manual file editing.
+Each project's `.vci.php` contains a `target` path pointing to one release inside that shared directory. Clicking **Apply** in the VCI dashboard rewrites that path and re-runs `composer dump-autoload` — no downtime, no manual file editing.
 
 ```
 /opt/luminova/                  ← shared packages root
@@ -48,7 +48,7 @@ Each project's `.luminova.php` contains a `target` path pointing to one release 
 └── current → releases/4.0.0   ← symlink to latest stable
 ```
 
-Your project's `.luminova.php` points to a specific release (or to `current` to always follow the latest).
+Your project's `.vci.php` points to a specific release (or to `current` to always follow the latest).
 
 **Benefits:** one framework installation shared across many projects; instant version switches; significant disk savings; centralized updates; compatible with shared hosting where global CLI tools may not be available.
 
@@ -89,7 +89,7 @@ Drop `vci.php` into your project's public web root:
 your-project/
 ├── public/
 │   └── vci.php       ← place it here
-├── .luminova.php
+├── .vci.php
 └── composer.json
 ```
 
@@ -162,7 +162,7 @@ Both paths are validated (must exist, be a regular file, and be executable) befo
 
 Set a new admin password (minimum 8 characters). Leave both fields blank to keep the [default password](#default-credentials). You can always change it later.
 
-After completing the wizard, VCI writes `.luminova.admin.php` to your project root.
+After completing the wizard, VCI writes `.vci.admin.php` to your project root.
 
 ---
 
@@ -170,7 +170,7 @@ After completing the wizard, VCI writes `.luminova.admin.php` to your project ro
 
 ### Admin Config File
 
-VCI stores its settings in `.luminova.admin.php` at your project root. This file is created automatically by the setup wizard:
+VCI stores its settings in `.vci.admin.php` at your project root. This file is created automatically by the setup wizard:
 
 ```php
 <?php
@@ -185,7 +185,7 @@ return [
 
 All keys are optional; omitted keys fall back to compiled-in defaults or auto-detection.
 
-> **Important:** Add `.luminova.admin.php` to `.gitignore` to avoid committing credentials.
+> **Important:** Add `.vci.admin.php` to `.gitignore` to avoid committing credentials.
 
 | Key | Description | Default |
 |---|---|---|
@@ -253,7 +253,7 @@ Paste the resulting string as the `password_hash` value in `.luminova.admin.php`
 
 ## Version Switching
 
-The dashboard lists all releases found in `{packages_dir}/releases/`, sorted newest-first. The currently active version (the one your project's `.luminova.php` points to) is highlighted and labelled **active**. Releases that the `current` symlink resolves to are additionally labelled **current-stable**.
+The dashboard lists all releases found in `{packages_dir}/releases/`, sorted newest-first. The currently active version (the one your project's `.vci.php` points to) is highlighted and labelled **active**. Releases that the `current` symlink resolves to are additionally labelled **current-stable**.
 
 **To switch versions:**
 
@@ -262,7 +262,7 @@ The dashboard lists all releases found in `{packages_dir}/releases/`, sorted new
 
 VCI will:
 
-1. Rewrite the `target` path inside `.luminova.php`
+1. Rewrite the `target` path inside `.vci.php`
 2. Update `composer.json` PSR-4 autoload entries to reference both local and shared framework paths.
 3. Run `composer dump-autoload --no-dev --optimize` from your project root.
 4. Display the full command output in the on-screen terminal pane.
@@ -314,7 +314,7 @@ The **Localize** button copies the selected version's `bootstrap/` and `system/`
 
 ### Path Mismatch Warning
 
-If the `target` path in `.luminova.php` falls outside the configured packages directory, the dashboard shows a **Path Mismatch** card with both the expected canonical path and the path actually stored. Click **Update Setup** to correct the packages path, or switch to any version to rewrite the target automatically.
+If the `target` path in `.vci.php` falls outside the configured packages directory, the dashboard shows a **Path Mismatch** card with both the expected canonical path and the path actually stored. Click **Update Setup** to correct the packages path, or switch to any version to rewrite the target automatically.
 
 ---
 
@@ -323,7 +323,7 @@ If the `target` path in `.luminova.php` falls outside the configured packages di
 If VCI detects both local framework files and shared-module autoloading enabled simultaneously, it shows an **Ambiguous Module Detected** warning. 
 
 - Click **Fix Conflict** to remove the redundant local files and re-optimize the autoloader. 
-- Manually delete files except for (`bootstrap/constants.php`, `system/Boot.php`, and everything under `system/plugins/`)
+- Manually delete files except for (`system/Boot.php`, and everything under `system/plugins/`)
 
 ---
 
@@ -377,7 +377,7 @@ VCI is designed to be safely exposed over HTTPS, but hardening is strongly recom
 | Binary validation | `isValidExecutable()` verifies `realpath()`, `is_file()`, and `is_executable()` before accepting any binary |
 | Session fixation | `session_regenerate_id(true)` on every login (when enabled) |
 | Content-Security-Policy | Strict CSP disables external inline scripts; `object-src 'none'`; `frame-ancestors 'none'` |
-| Cache prevention | `no-store, no-cache` headers prevent browsers caching the admin page |
+| Cache prevention | `no-store, no-cache` headers prevent browsers cacheing the admin page |
 | Search engine exclusion | `<meta name="robots" content="noindex, nofollow, noarchive">` |
 | IP allowlist | Optional `allowed_ip_addresses` blocks all other IPs with a `404` response |
 
@@ -426,7 +426,7 @@ location = /vci.php {
 
 **Setup wizard reappears after saving**
 
-The wizard shows whenever `.luminova.admin.php` does not exist or could not be written. Check that the PHP process has write permission to the project root:
+The wizard shows whenever `.vci.admin.php` does not exist or could not be written. Check that the PHP process has write permission to the project root:
 
 ```bash
 ls -la /path/to/your/project/
@@ -470,27 +470,27 @@ Wait 5 minutes for the lockout window to expire. For immediate access, clear the
 **"Could not write .luminova.php — check file permissions"**
 
 ```bash
-chmod 664 .luminova.php
-chown www-data:www-data .luminova.php
+chmod 664 .vci.php
+chown www-data:www-data .vci.php
 ```
 
 If the file does not yet exist, the project root directory must be writable by the web server user.
 
 **Path Mismatch card appears on the dashboard**
 
-The `target` in `.luminova.php` points outside the configured packages directory. Click **Update Setup**, re-enter the correct packages path, then click **Apply** on any version to rewrite the target.
+The `target` in `.vci.php` points outside the configured packages directory. Click **Update Setup**, re-enter the correct packages path, then click **Apply** on any version to rewrite the target.
 
 ---
 
 ## Constants Reference
 
-These constants are defined near the top of `vci.php`. Values in `.luminova.admin.php` override the defaults shown below.
+These constants are defined near the top of `vci.php`. Values in `.vci.admin.php` override the defaults shown below.
 
 | Constant | Default | Description |
 |---|---|---|
 | `PROJECT_APP_ROOT` | `__DIR__ . '/../'` | Project root — one level above the public web root |
-| `PATH_CONFIG_FILE` | `{PROJECT_APP_ROOT}/.luminova.admin.php` | VCI admin config file path |
-| `PATH_APP_CONFIG_FILE` | `{PROJECT_APP_ROOT}/.luminova.php` | Project Luminova boot config file path |
+| `PATH_CONFIG_FILE` | `{PROJECT_APP_ROOT}/.vci.admin.php` | VCI admin config file path |
+| `PATH_APP_CONFIG_FILE` | `{PROJECT_APP_ROOT}/.vci.php` | Project Luminova boot config file path |
 | `PATH_COMPOSER_JSON` | `{PROJECT_APP_ROOT}/composer.json` | Path to the project `composer.json` |
 | `PATH_TMP` | `{PROJECT_APP_ROOT}/writeable/php-tmp` | Temporary directory for safe atomic file writes |
 | `PATH_LOGS` | `{PROJECT_APP_ROOT}/writeable/logs/vci.log` | VCI error log file path |
