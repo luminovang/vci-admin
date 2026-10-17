@@ -11,8 +11,8 @@ ini_set('display_startup_errors', '0');
 // ══════════════════════════════════════════════════════════════
 define('__SELF__',                  $_SERVER['PHP_SELF']);
 define('PROJECT_APP_ROOT',           rtrim(realpath(__DIR__ . '/../'), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR);
-define('PATH_ADMIN_CONFIG_FILE',     PROJECT_APP_ROOT . '.luminova.admin.php');
-define('PATH_APP_VER_CONFIG_FILE',   PROJECT_APP_ROOT . '.luminova.php');
+define('PATH_ADMIN_CONFIG_FILE',     PROJECT_APP_ROOT . '.vci.admin.php');
+define('PATH_APP_VER_CONFIG_FILE',   PROJECT_APP_ROOT . '.vci.php');
 define('PATH_COMPOSER_JSON',         PROJECT_APP_ROOT . 'composer.json');
 define('PATH_TMP',                   PROJECT_APP_ROOT . 'writeable/vci-tmp');
 define('PATH_LOGS',                  PROJECT_APP_ROOT . 'writeable/logs/vci.log');
@@ -95,6 +95,7 @@ set_error_handler(function ($severity, $message, $file, $line) {
 
 register_shutdown_function(function () {
     $error = error_get_last();
+
     if ($error) {
         _log($error['message'], 'FATAL', $error['file'], $error['line']);
     }
@@ -261,8 +262,18 @@ unset($_admin);
 // ══════════════════════════════════════════════════════════════
 final class VCI
 {
+    /**
+     * Version number.
+     * 
+     * @var string VERSION
+     */
     public const VERSION = '1.0.2';
 
+    /**
+     * Composer update messages.
+     * 
+     * @var array<int,string> COMPOSER_UPDATE_MESSAGES
+     */
     private const COMPOSER_UPDATE_MESSAGES = [
         1  => 'Composer autoload configuration updated successfully.',
         0  => 'Failed to read or parse composer.json.',
@@ -271,6 +282,11 @@ final class VCI
         -1 => 'Failed to write updated composer.json.',
     ];
 
+    /**
+     * IP header names.
+     *
+     * @var string[] $headers
+     */
     private static array $headers = [
         'HTTP_CF_CONNECTING_IP',
         'HTTP_X_FORWARDED_FOR',
@@ -279,7 +295,11 @@ final class VCI
         'REMOTE_ADDR'
     ];
 
-    /** In-request cache buckets. */
+    /**
+     * In-request cache buckets.
+     *
+     * @var array<string,mixed> $cache
+     */
     private static array $cache = [
         'conf'   => null,
         'paths'  => [],
@@ -1321,7 +1341,7 @@ final class VCI
         $removed = 0;
 
         $rules = [
-            PROJECT_APP_ROOT . 'bootstrap' => ['constants.php'],
+            PROJECT_APP_ROOT . 'bootstrap' => [],
             PROJECT_APP_ROOT . 'system'    => ['Boot.php', 'plugins']
         ];
 
@@ -1724,7 +1744,7 @@ final class VCI
     }
 
     /**
-     * Load and return the project's .luminova.php config array.
+     * Load and return the project's .vci.php config array.
      *
      * @param string|null $key  Return a single top-level key when provided.
      */
@@ -1782,7 +1802,7 @@ final class VCI
 
     /**
      * Handle the version switch action.
-     * Validates the requested version, updates .luminova.php, and runs
+     * Validates the requested version, updates .vci.php, and runs
      * composer dump-autoload.
      */
     private static function handleSwitch(array $state): void
@@ -1811,8 +1831,8 @@ final class VCI
             : "⚠ Could not restore {$version} specific files.";
 
         $log[] = $updated
-            ? "✔ .luminova.php updated → {$version}"
-            : ($err ?? '⚠ Could not update .luminova.php, check file permissions.');
+            ? "✔ .vci.php updated → {$version}"
+            : ($err ?? '⚠ Could not update .vci.php, check file permissions.');
 
         $log[] = '';
 
@@ -1856,6 +1876,9 @@ final class VCI
 
             PROJECT_APP_ROOT . 'bootstrap/constants.php'
                 => $metadataPath . '/bootstrap/constants.php',
+
+            PROJECT_APP_ROOT . 'novakit'
+                => $metadataPath . '/novakit',
         ];
 
         $restored = 0;
@@ -1920,7 +1943,7 @@ final class VCI
      * the selected release into a temporary staging directory, prunes existing local
      * module files, then moves the staged copies into the project root. Updates
      * {@code composer.json} to reference local paths and sets
-     * {@code resolve.paths = false} in {@code .luminova.php} to disable the
+     * {@code resolve.paths = false} in {@code .vci.php} to disable the
      * shared-module feature. Runs {@code composer dump-autoload} and returns a JSON
      * result.
      *
@@ -2023,6 +2046,12 @@ final class VCI
             "{$tmpRoot}system/"    => PROJECT_APP_ROOT . 'system/'
         ]);
 
+        $novakit = "{$metadataPath}/novakit";
+
+        if (is_file($novakit)) {
+            copy($novakit, PROJECT_APP_ROOT);
+        }
+
         $err = null;
         $log = [];
 
@@ -2039,8 +2068,8 @@ final class VCI
         $updated = self::writeAppConfig($newPath, $packagesDir, true, $err);
 
         $log[] = $updated
-            ? '✔ .luminova.php updated successfully.'
-            : ($err ?? '⚠ Failed to update .luminova.php.');
+            ? '✔ .vci.php updated successfully.'
+            : ($err ?? '⚠ Failed to update .vci.php.');
 
         $log[] = '';
 
@@ -2239,11 +2268,11 @@ final class VCI
 
     /**
      * Build the expected packages path from an arbitrary target path string.
-     * Useful for detecting when .luminova.php points to a path outside the
+     * Useful for detecting when .vci.php points to a path outside the
      * configured packages directory.
      *
      * @param string $packages Configured packages root.
-     * @param string $target Path stored in the project's .luminova.php.
+     * @param string $target Path stored in the project's .vci.php.
      */
     public static function buildCanonicalPath(string $packages, string $target): string
     {
@@ -2258,7 +2287,7 @@ final class VCI
     }
 
     /**
-     * Update the project's .luminova.php to reference $version.
+     * Update the project's .vci.php to reference $version.
      * Creates the file with sensible defaults when it does not yet exist.
      *
      * @param string $newPath Release version path
@@ -2336,7 +2365,7 @@ final class VCI
         }
 
         if (!is_writable(PATH_APP_VER_CONFIG_FILE)) {
-            $err = 'Error ".luminova.php" file is not writable.';
+            $err = 'Error ".vci.php" file is not writable.';
         }
 
         return false;
@@ -4108,7 +4137,7 @@ code {
                                 <?= htmlspecialchars($activeVersion) ?>
                             </span>
                             <p class="switch-notice visible">
-                                Application is using local luminova modules and does not enable Luminova shared module feature in <code>.luminova.php -> resolve.paths</code>. Select preferred version and click <code>"Apply"</code> to enable shared module
+                                Application is using local luminova modules and does not enable Luminova shared module feature in <code>.vci.php -> resolve.paths</code>. Select preferred version and click <code>"Apply"</code> to enable shared module
                             </p>
                     </div>
                     <span class="status-indicator status-inactive" id="js-live-badge">Local</span>
@@ -4133,7 +4162,6 @@ code {
                                 <dt>/bootstrap/</dt>
                                 <dd>
                                     Removes all files from <code>bootstrap/*</code>
-                                    except <code>bootstrap/constants.php</code>
                                 </dd>
 
                                 <dt>/system/</dt>
@@ -4186,7 +4214,7 @@ code {
                     <span class="error-card-title">Path Mismatch</span>
                 </div>
                 <div class="error-card-body">
-                    The target path in <code>.luminova.php</code> does not fall within the
+                    The target path in <code>.vci.php</code> does not fall within the
                     configured packages directory.
                     <dl class="path-compare">
                         <dt>Expected</dt>
@@ -4516,7 +4544,7 @@ code {
         const confirmed = confirm(
             `Switch project luminova version to '${version}'?\n\n`
             + 'This will:\n'
-            + '  1. Update .luminova.php release path\n'
+            + '  1. Update .vci.php release path\n'
             + '  2. Run composer autoload optimization\n'
             + '  3. Modify composer.json'
         );
