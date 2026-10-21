@@ -9,13 +9,14 @@ ini_set('display_startup_errors', '0');
 // ══════════════════════════════════════════════════════════════
 // PATHS — initialization must come before any code that references these constants
 // ══════════════════════════════════════════════════════════════
+define('PACKAGE_NAME', 'luminovang/framework');
 define('__SELF__',                  $_SERVER['PHP_SELF']);
 define('PROJECT_APP_ROOT',           rtrim(realpath(__DIR__ . '/../'), DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR);
-define('PATH_ADMIN_CONFIG_FILE',     PROJECT_APP_ROOT . '.vci.admin.php');
-define('PATH_APP_VER_CONFIG_FILE',   PROJECT_APP_ROOT . '.vci.php');
+define('PATH_ADMIN_CONFIG_FILE',     PROJECT_APP_ROOT . '.phpvci.admin.php');
+define('PATH_APP_VER_CONFIG_FILE',   PROJECT_APP_ROOT . '.phpvci.php');
 define('PATH_COMPOSER_JSON',         PROJECT_APP_ROOT . 'composer.json');
-define('PATH_TMP',                   PROJECT_APP_ROOT . 'writeable/vci-tmp');
-define('PATH_LOGS',                  PROJECT_APP_ROOT . 'writeable/logs/vci.log');
+define('PATH_TMP',                   PROJECT_APP_ROOT . 'writeable/tmp/phpvci');
+define('PATH_LOGS',                  PROJECT_APP_ROOT . 'writeable/logs/phpvci.log');
 
 // ══════════════════════════════════════════════════════════════
 // ADMIN CONFIG DEFAULTS — Login and session settings.
@@ -252,22 +253,22 @@ if (@is_file(PATH_ADMIN_CONFIG_FILE)) {
 define('ADMIN_PASSWORD_HASH',  $_admin['password_hash'] ?? DEFAULT_PASSWORD_HASH);
 define('PHP_BIN',              $_admin['php_bin'] ?? _php_binary());
 define('COMPOSER_BIN',         $_admin['composer_bin'] ?? _composer_binary());
-define('LUMINOVA_BIN',         $_admin['luminova_bin']  ?? '');
+define('PHPVCI_BIN',           $_admin['phpvci_bin']  ?? '');
 define('ALLOWED_IP_ADDRESSES', $_admin['allowed_ip_addresses']  ?? []);
 unset($_admin);
 
 // ══════════════════════════════════════════════════════════════
-// VCI CLASS DEFINITION
+// PHP VCI CLASS DEFINITION
 // Contains static methods for config management, path resolution, IP validation, and other utilities.
 // ══════════════════════════════════════════════════════════════
-final class VCI
+final class PHPVCI
 {
     /**
      * Version number.
      * 
      * @var string VERSION
      */
-    public const VERSION = '1.0.2';
+    public const VERSION = '1.0.3';
 
     /**
      * Composer update messages.
@@ -713,7 +714,7 @@ final class VCI
      */
     public static function isFollowCurrent(): bool 
     {
-        $target = self::appConf('luminova.paths')['target'] ?? '';
+        $target = self::appConf('paths')['target'] ?? '';
 
         if (!$target || !file_exists($target)) {
             return false;
@@ -822,25 +823,25 @@ final class VCI
         $paths = $prepend;
 
         if ($type === 'config') {
-            $paths[] = '/etc/luminova/vci.conf';
-            $paths[] = '/var/lib/vci.conf';
+            $paths[] = '/etc/phpvci/config.conf';
+            $paths[] = '/var/lib/phpvci/config.conf';
             if ($home) {
-                $paths[] = "{$home}/.luminova/vci.conf";
-                $paths[] = "{$home}/.config/.luminova/vci.conf";
-                $paths[] = "{$home}/.local/share/.luminova/vci.conf";
+                $paths[] = "{$home}/.phpvci/config.conf";
+                $paths[] = "{$home}/.config/.phpvci/config.conf";
+                $paths[] = "{$home}/.local/share/.phpvci/config.conf";
             }
         } elseif ($type === 'bin') {
             array_push($paths,
-                '/usr/local/bin/luminova',
-                '/usr/bin/luminova',
-                '/opt/luminova',
-                '/usr/local/luminova',
-                '/srv/luminova',
-                '/var/www/luminova'
+                '/usr/local/bin/phpvci',
+                '/usr/bin/phpvci',
+                '/opt/phpvci',
+                '/usr/local/phpvci',
+                '/srv/phpvci',
+                '/var/www/phpvci'
             );
             if ($home) {
-                $paths[] = "{$home}/luminova";
-                $paths[] = "{$home}/.local/bin/luminova";
+                $paths[] = "{$home}/phpvci";
+                $paths[] = "{$home}/.local/bin/phpvci";
             }
         }
 
@@ -848,8 +849,8 @@ final class VCI
     }
 
     /**
-     * Parse the VCI shell config file (vci.conf) into a key-value array.
-     * Environment variable LUMINOVA_VCI_CONF takes priority over file values.
+     * Parse the VCI shell config file (config.conf) into a key-value array.
+     * Environment variable PHPVCI_CONF takes priority over file values.
      */
     public static function readConf(?string $extra = null): array
     {
@@ -859,7 +860,7 @@ final class VCI
 
         $cfg = [];
 
-        foreach (['LUMINOVA_VCI_CONF', 'LUMINOVA_PACKAGE_DIR'] as $k) {
+        foreach (['PHPVCI_CONF', 'PHPVCI_PACKAGE_DIR'] as $k) {
             $v = getenv($k);
 
             if ($v !== false && $v !== '') {
@@ -888,7 +889,7 @@ final class VCI
     }
 
     /**
-     * Locate the luminova shell binary, optionally returning the symlink path.
+     * Locate the phpvci shell binary, optionally returning the symlink path.
      *
      * @param bool  $forLink Return the symlink path rather than the resolved real path.
      */
@@ -900,7 +901,7 @@ final class VCI
             return self::$cache['binary'][$key];
         }
 
-        $binary = self::$cache['conf']['LUMINOVA_VCI_BIN'] 
+        $binary = self::$cache['conf']['PHPVCI_BIN'] 
             ??  null;
 
         if ($binary && is_executable($binary)) {
@@ -929,23 +930,23 @@ final class VCI
     }
 
     /**
-     * Return true when the luminova binary lives inside the packages directory
+     * Return true when the phpvci binary lives inside the packages directory
      * (i.e. VCI was not installed globally via --self=install).
      */
     public static function binaryInPackagesDir(array $cfg): bool
     {
-        $vciDir     = realpath(dirname($cfg['LUMINOVA_VCI_BIN'] ?? ''));
-        $packageDir = realpath($cfg['LUMINOVA_PACKAGE_DIR'] ?? '');
+        $phpvci     = realpath(dirname($cfg['PHPVCI_BIN'] ?? ''));
+        $packageDir = realpath($cfg['PHPVCI_PACKAGE_DIR'] ?? '');
 
-        if ($vciDir === false || $packageDir === false) {
+        if ($phpvci === false || $packageDir === false) {
             return false;
         }
 
-        return $vciDir === $packageDir;
+        return $phpvci === $packageDir;
     }
 
     /**
-     * Resolve the packages root directory from config or fall back to /opt/luminova.
+     * Resolve the packages root directory from config or fall back to /opt/phpvci.
      */
     private static function findPackagesDir(): ?string
     {
@@ -954,8 +955,8 @@ final class VCI
         }
 
         $cfg = [
-            self::$cache['conf']['LUMINOVA_PACKAGE_DIR'] ?? null, 
-            '/opt/luminova'
+            self::$cache['conf']['PHPVCI_PACKAGE_DIR'] ?? null, 
+            '/opt/phpvci'
         ];
 
         foreach ($cfg as $path) {
@@ -1025,7 +1026,7 @@ final class VCI
        
         return [
             $paths['packages'] ?? '',
-            $paths['luminova_bin'] ?? $paths['bin'] ?? '',
+            $paths['phpvci_bin'] ?? $paths['bin'] ?? '',
         ];
     }
 
@@ -1040,7 +1041,7 @@ final class VCI
      *     packages?: string,
      *     composer_bin?: string,
      *     php_bin?: string,
-     *     luminova_bin?: string,
+     *     phpvci_bin?: string,
      *     password_hash?: string,
      *     allowed_ip_addresses?: list<string>
      * } Config array; empty when the file does not exist or cannot be read.
@@ -1055,7 +1056,7 @@ final class VCI
     }
 
     /**
-     * Return true when $path is a valid Luminova packages root
+     * Return true when $path is a valid phpvci packages root
      * (directory exists and contains a releases/ sub-directory).
      */
     public static function validPackagesDir(string $path): bool
@@ -1082,7 +1083,7 @@ final class VCI
             self::redirect($query);
         }
 
-        $packagesDir = rtrim(trim($_POST['luminova_base'] ?? ''), '/');
+        $packagesDir = rtrim(trim($_POST['phpvci_base'] ?? ''), '/');
 
         if(!self::isSafePathString($packagesDir)){
             self::setData(
@@ -1100,7 +1101,7 @@ final class VCI
             self::redirect($query);
         }
 
-        $luminovaPath  = rtrim(trim($_POST['luminova_bin']  ?? ''), '/');
+        $phpVciPath     = rtrim(trim($_POST['phpvci_bin']  ?? ''), '/');
         $composerBin = trim($_POST['composer_bin'] ?? '') ?: COMPOSER_BIN;
         $phpBin      = trim($_POST['php_bin']      ?? '') ?: PHP_BIN;
 
@@ -1146,7 +1147,7 @@ final class VCI
             $passwordHash = password_hash($newPass, PASSWORD_ALGO);
         }
 
-        if (!self::writeAdminConf($packagesDir, $luminovaPath, $composerBin, $phpBin, $passwordHash)) {
+        if (!self::writeAdminConf($packagesDir, $phpVciPath, $composerBin, $phpBin, $passwordHash)) {
             self::setData(
                 'setup_error',
                 'Could not write ' . PATH_ADMIN_CONFIG_FILE . ' — check directory permissions.'
@@ -1160,20 +1161,20 @@ final class VCI
     /**
      * Persist paths and optional overrides to the admin config JSON file.
      *
-     * @param string      $packagesDir  Absolute path to the VCI packages directory.
-     * @param string|null $luminovaBin   Absolute path to the luminova binary (optional).
+     * @param string      $packagesDir  Absolute path to the phpvci packages directory.
+     * @param string|null $phpVciBin    Absolute path to the phpvci binary (optional).
      * @param string|null $composerBin  Path to the Composer executable (optional).
      * @param string|null $phpBin       Path to the PHP executable (optional).
      * @param string|null $passwordHash bcrypt hash of the new admin password (optional).
-     * @param string|null $luminovaVer Target luminova composer version constraint.
+     * @param string|null $targetVer Target app module composer version constraint.
      */
     private static function writeAdminConf(
         ?string $packagesDir  = null,
-        ?string $luminovaBin  = null,
+        ?string $phpVciBin  = null,
         ?string $composerBin  = null,
         ?string $phpBin       = null,
         ?string $passwordHash = null,
-        ?string $luminovaVer = null
+        ?string $targetVer = null
     ): bool 
     {
         // Load existing data so we only overwrite supplied fields
@@ -1184,9 +1185,9 @@ final class VCI
             'packages'      => $packagesDir  ?: ($existing['packages']      ?? null),
             'composer_bin'  => $composerBin  ?: ($existing['composer_bin']  ?? null),
             'php_bin'       => $phpBin       ?: ($existing['php_bin']       ?? null),
-            'luminova_bin'  => $luminovaBin  ?: ($existing['luminova_bin']  ?? null),
+            'phpvci_bin'    => $phpVciBin    ?: ($existing['phpvci_bin']  ?? null),
             'password_hash' => $passwordHash ?: ($existing['password_hash'] ?? null),
-            'luminova_ver'  => $luminovaVer  ?: ($existing['luminova_ver']  ?? null),
+            'target_ver'    => $targetVer    ?: ($existing['target_ver']  ?? null),
         ], fn($v) => $v !== null && $v !== '');
 
         $data = "<?php\nreturn " . var_export(self::$cache['admin.conf'], true) . ";\n";
@@ -1205,7 +1206,7 @@ final class VCI
         session_start([
             'cookie_httponly' => true,
             'cookie_samesite' => 'Strict',
-            'cookie_secure' => true,
+            'cookie_secure'   => true,
             'gc_maxlifetime'  => SESSION_LIFETIME,
         ]);
 
@@ -1336,74 +1337,27 @@ final class VCI
         }
     }
 
+    /**
+     * Remove local modules.
+     *
+     * @param bool $keepDefault
+     * 
+     * @return int
+     */
     private static function removeModules(bool $keepDefault = true): int
     {
         $removed = 0;
 
-        $rules = [
-            PROJECT_APP_ROOT . 'bootstrap' => [],
+        $paths = [
+            PROJECT_APP_ROOT . 'bootstrap' => ['.gitignore'],
             PROJECT_APP_ROOT . 'system'    => ['Boot.php', 'plugins']
         ];
 
-        $plugins = 'plugins' . DIRECTORY_SEPARATOR;
-
-        foreach ($rules as $dir => $allowed) {
-            if (!is_dir($dir)) {
-                continue;
-            }
-
-            $iterator = new RecursiveIteratorIterator(
-                new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS),
-                RecursiveIteratorIterator::CHILD_FIRST
-            );
-
-            foreach ($iterator as $item) {
-                $path = $item->getPathname();
-                $isAllowed = false;
-                $relative = substr($path, strlen($dir) + 1);
-
-                // Always preserve .gitignore files
-                if (str_ends_with($relative, '.gitignore')) {
-                    continue;
-                }
-
-                // Preserve plugins directory and contents
-                if (
-                    $relative === 'plugins'
-                    || $relative === 'Boot.php'
-                    || str_starts_with($relative, $plugins)
-                    || str_starts_with($relative, 'Boot.php')
-                ) {
-                    continue;
-                }
-
-                if ($keepDefault) {
-                    foreach ($allowed as $keep) {
-                        if (
-                            $relative === $keep
-                            || (
-                                $keep === 'plugins'
-                                && str_starts_with($relative, $plugins)
-                            )
-                        ) {
-                            $isAllowed = true;
-                            break;
-                        }
-                    }
-                }
-
-                if ($isAllowed) {
-                    continue;
-                }
-
-                $isRemoved = $item->isDir()
-                    ? @rmdir($path)
-                    : @unlink($path);
-
-                if ($isRemoved) {
-                    $removed++;
-                }
-            }
+        foreach ($paths as $path => $allowed) {
+            $removed += self::deleteFiles(
+                $path,
+                $keepDefault ? $allowed : []
+            ); 
         }
 
         return $removed;
@@ -1415,33 +1369,54 @@ final class VCI
      * The $target directory itself is preserved; only its contents are deleted.
      * Entries that cannot be removed are silently skipped.
      *
-     * @param string $target Absolute path to the directory whose contents should be cleared.
+     * @param string $dir Absolute path to the directory whose contents should be cleared.
+     * @param array $allowed
      *
      * @return int Number of files and directories successfully removed.
      */
-    private static function cleanDirectory(string $target): int
+    private static function deleteFiles(
+        string $dir,
+        array $allowed = []
+    ): int 
     {
-        if (!is_dir($target)) {
+        if (!is_dir($dir)) {
             return 0;
         }
 
         $removed = 0;
-        $iterator = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($target, FilesystemIterator::SKIP_DOTS),
-            RecursiveIteratorIterator::CHILD_FIRST
-        );
+        $isSystemRoot = basename($dir) === 'system';
 
-        foreach ($iterator as $file) {
-            $path = $file->getPathname();
-       
-            if ($file->isDir()) {
-                $isRemoved = @rmdir($path);
-            } else {
-                $isRemoved = @unlink($path);
+        // if (!is_writable($dir)) {
+        //     @chmod($dir, 0755);
+        // }
+
+        // $iterator = new RecursiveIteratorIterator(
+        //     new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS),
+        //     RecursiveIteratorIterator::CHILD_FIRST
+        // );
+
+        foreach (new FilesystemIterator($dir, FilesystemIterator::SKIP_DOTS) as $item) {
+            $path = $item->getPathname();
+            $name = $item->getFilename();
+
+            if ($isSystemRoot && in_array($name, $allowed, true)) {
+                continue;
             }
 
-            if ($isRemoved) {
-                $removed++;
+            if ($item->isDir() && !$item->isLink()) {
+                $removed += self::deleteFiles($path);
+
+                if (@rmdir($path)) {
+                    $removed++;
+                }
+
+                continue;
+            }
+
+            if ($item->isFile() || $item->isLink()) {
+                if (unlink($path)) {
+                    $removed++;
+                }
             }
         }
 
@@ -1508,8 +1483,16 @@ final class VCI
         }
 
         $rules = [
-            PROJECT_APP_ROOT . 'bootstrap' => ['functions.php', 'worker.php'],
-            PROJECT_APP_ROOT . 'system'    => ['Luminova.php', 'Foundation/Core/Application.php']
+            PROJECT_APP_ROOT . 'bootstrap' => [
+                'Funcs/functions.php', 
+                'constants.php',
+                'polyfills.php'
+            ],
+            PROJECT_APP_ROOT . 'system'    => [
+                'Luminova.php', 
+                'Runtime.php', 
+                'Foundation/Core/Application.php'
+            ]
         ];
 
         foreach ($rules as $dir => $checks) {
@@ -1727,8 +1710,8 @@ final class VCI
     {
         $conf = self::appConf();
 
-        $status = $conf['resolve.paths'] ?? false;
-        $target = $conf['luminova.paths']['target'] ?? '';
+        $status = $conf['enabled'] ?? false;
+        $target = $conf['paths']['target'] ?? '';
 
         if (!file_exists($target)) {
             return ['', $target, $status];
@@ -1744,7 +1727,7 @@ final class VCI
     }
 
     /**
-     * Load and return the project's .vci.php config array.
+     * Load and return the project's .phpvci.php config array.
      *
      * @param string|null $key  Return a single top-level key when provided.
      */
@@ -1786,7 +1769,7 @@ final class VCI
         }
 
         if ($state['needsSetup']) {
-            self::json(false, 'Luminova path not configured.');
+            self::json(false, 'phpvci path not configured.');
         }
 
         if(!self::isComposerJson()){
@@ -1802,7 +1785,7 @@ final class VCI
 
     /**
      * Handle the version switch action.
-     * Validates the requested version, updates .vci.php, and runs
+     * Validates the requested version, updates .phpvci.php, and runs
      * composer dump-autoload.
      */
     private static function handleSwitch(array $state): void
@@ -1831,8 +1814,8 @@ final class VCI
             : "⚠ Could not restore {$version} specific files.";
 
         $log[] = $updated
-            ? "✔ .vci.php updated → {$version}"
-            : ($err ?? '⚠ Could not update .vci.php, check file permissions.');
+            ? "✔ .phpvci.php updated → {$version}"
+            : ($err ?? '⚠ Could not update .phpvci.php, check file permissions.');
 
         $log[] = '';
 
@@ -1943,7 +1926,7 @@ final class VCI
      * the selected release into a temporary staging directory, prunes existing local
      * module files, then moves the staged copies into the project root. Updates
      * {@code composer.json} to reference local paths and sets
-     * {@code resolve.paths = false} in {@code .vci.php} to disable the
+     * {@code resolve.paths = false} in {@code .phpvci.php} to disable the
      * shared-module feature. Runs {@code composer dump-autoload} and returns a JSON
      * result.
      *
@@ -2068,8 +2051,8 @@ final class VCI
         $updated = self::writeAppConfig($newPath, $packagesDir, true, $err);
 
         $log[] = $updated
-            ? '✔ .vci.php updated successfully.'
-            : ($err ?? '⚠ Failed to update .vci.php.');
+            ? '✔ .phpvci.php updated successfully.'
+            : ($err ?? '⚠ Failed to update .phpvci.php.');
 
         $log[] = '';
 
@@ -2174,19 +2157,20 @@ final class VCI
 
         $updateVer = false;
         $changes = 0;
-        $ver = self::$cache['admin.conf']['luminova_ver'] ?? "^3.7";
+        $ver = self::$cache['admin.conf']['target_ver'] ?? "^3.7";
+        $package = self::$cache['admin.conf']['package_name'] ?? PACKAGE_NAME;
 
         if($newPath === null){
-            if (!isset($json['require']['luminovang/framework'])) {
-                $json['require']['luminovang/framework'] = $ver;
+            if (!isset($json['require'][$package])) {
+                $json['require'][$package] = $ver;
                 $changes = 1;
             }
-        }elseif (isset($json['require']['luminovang/framework'])) {
+        }elseif (isset($json['require'][$package])) {
             $updateVer = true;
-            self::$cache['admin.conf']['luminova_ver'] = $json['require']['luminovang/framework'] 
+            self::$cache['admin.conf']['target_ver'] = $json['require'][$package] 
                 ?? $ver;
 
-            unset($json['require']['luminovang/framework']);
+            unset($json['require'][$package]);
         }
 
         $newPsr4 = [];
@@ -2201,7 +2185,7 @@ final class VCI
             }
 
             $suffix = match (true) {
-                str_starts_with($trimmed, 'Luminova\\Funcs\\') => 'bootstrap/',
+                str_starts_with($trimmed, 'Luminova\\Funcs\\') => 'bootstrap/Funcs/',
                 $trimmed === 'Luminova\\' => 'system/',
                 default => null
             };
@@ -2260,7 +2244,7 @@ final class VCI
         }
 
         if($updateVer){
-            self::writeAdminConf(luminovaVer: $ver);
+            self::writeAdminConf(targetVer: $ver);
         }
 
         return 1;
@@ -2268,11 +2252,11 @@ final class VCI
 
     /**
      * Build the expected packages path from an arbitrary target path string.
-     * Useful for detecting when .vci.php points to a path outside the
+     * Useful for detecting when .phpvci.php points to a path outside the
      * configured packages directory.
      *
      * @param string $packages Configured packages root.
-     * @param string $target Path stored in the project's .vci.php.
+     * @param string $target Path stored in the project's .phpvci.php.
      */
     public static function buildCanonicalPath(string $packages, string $target): string
     {
@@ -2287,7 +2271,7 @@ final class VCI
     }
 
     /**
-     * Update the project's .vci.php to reference $version.
+     * Update the project's .phpvci.php to reference $version.
      * Creates the file with sensible defaults when it does not yet exist.
      *
      * @param string $newPath Release version path
@@ -2305,7 +2289,7 @@ final class VCI
         $conf = null;
         $comment = <<<COMMENT
         /**
-         * Luminova Boot Configuration
+         * Framework phpvci autoload configuration.
          *
          * Defines how the bootloader resolves framework core paths and autoload strategy.
          * This file is loaded during early bootstrap and overrides default resolution logic.
@@ -2313,9 +2297,9 @@ final class VCI
          * Modes:
          * - resolve.paths: enables shared framework installation
          * - resolve.autoloader:
-         *      auto     → detect Composer, fallback to Luminova if needed
+         *      auto     → detect Composer, fallback to framework autoload if needed
          *      composer → use Composer only (recommended updating composer psr4 mapping)
-         *      luminova → use custom loader only
+         *      framework → use custom loader only
          *
          * Rules:
          * - Only system/bootstrap may be shared
@@ -2325,10 +2309,10 @@ final class VCI
          * @link https://luminova.ng/docs/0.0.0/boot/shared-modules
          *
          * @return array{
-         *     resolve.paths: bool,
-         *     resolve.autoloader: 'auto'|'composer'|'luminova',
-         *     luminova.version: string,
-         *     luminova.paths: array{
+         *     enabled: bool,
+         *     autoloader: 'auto'|'composer'|'framework',
+         *     version: string,
+         *     paths: array{
          *         root: string,
          *         target: string
          *     }
@@ -2341,19 +2325,19 @@ final class VCI
         }
 
         $conf ??= [
-            'resolve.paths'      => true,
-            'resolve.autoloader' => 'auto',
-            'luminova.version'   => '>=3.8',
-            'luminova.paths'     => [
+            'enabled'      => true,
+            'autoloader'   => 'auto',
+            'version'      => '>=3.8',
+            'paths'        => [
                 'root'   => '',
                 'target' => '',
             ],
         ];
 
-        $oldPath = $conf['luminova.paths']['target'] ?? '';
+        $oldPath = $conf['paths']['target'] ?? '';
 
-        $conf['resolve.paths'] = !$isLocal;
-        $conf['luminova.paths'] = [
+        $conf['enabled'] = !$isLocal;
+        $conf['paths'] = [
             'root'   => $packagesDir,
             'target' => $newPath ?? $oldPath
         ];
@@ -2365,7 +2349,7 @@ final class VCI
         }
 
         if (!is_writable(PATH_APP_VER_CONFIG_FILE)) {
-            $err = 'Error ".vci.php" file is not writable.';
+            $err = 'Error ".phpvci.php" file is not writable.';
         }
 
         return false;
@@ -2447,7 +2431,7 @@ final class VCI
      *
      * @return array{
      *   packages: string,
-     *   luminova_bin: string,
+     *   phpvci_bin: string,
      *   needsSetup: bool,
      *   releases: string,
      *   current: string
@@ -2455,12 +2439,12 @@ final class VCI
      */
     public static function initRuntimeState(): array
     {
-        [$packagesDir, $luminovaBin] = self::getPaths();
+        [$packagesDir, $phpvciBin] = self::getPaths();
         $needsSetup = ($packagesDir === '') || !file_exists(PATH_ADMIN_CONFIG_FILE);
 
         return [
             'packages'      => $packagesDir,
-            'luminova_bin'  => $luminovaBin ?? '',
+            'phpvci_bin'    => $phpvciBin ?? '',
             'needsSetup'    => $needsSetup,
             'releases'      => $packagesDir ? $packagesDir . '/releases' : '',
             'current'       => $packagesDir ? $packagesDir . '/current'  : '',
@@ -2528,42 +2512,43 @@ final class VCI
     }
 }
 
+
 // ══════════════════════════════════════════════════════════════
 // ── Initialization and Request Handling
 // ══════════════════════════════════════════════════════════════
-VCI::start();
-$state = VCI::initRuntimeState();
+PHPVCI::start();
+$state = PHPVCI::initRuntimeState();
 $isUpdate = false;
 
 // ── Action dispatcher
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
-    VCI::onPostRequest($_POST['action'], $state);
+    PHPVCI::onPostRequest($_POST['action'], $state);
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $action = $_GET['action'] ?? null;
 
     if ($action) {
-        VCI::forceLogin();
+        PHPVCI::forceLogin();
 
         $isUpdate = $action === 'update';
     }
 
     if (isset($_GET['logout'])) {
-        VCI::logout();
+        PHPVCI::logout();
     }
 }
 
 // ── View data
-$versions = VCI::getInstalledVersions($state);
-[$activeVersion, $appTargetPackage, $vciResolveStatus] = VCI::getAppActiveVersion();
-$isFollowCurrent = VCI::isFollowCurrent();
+$versions = PHPVCI::getInstalledVersions($state);
+[$activeVersion, $appTargetPackage, $vciResolveStatus] = PHPVCI::getAppActiveVersion();
+$isFollowCurrent = PHPVCI::isFollowCurrent();
 
-$loginError = VCI::getData('login_error', '');
-$setupError = VCI::getData('setup_error', '');
+$loginError = PHPVCI::getData('login_error', '');
+$setupError = PHPVCI::getData('setup_error', '');
 
-VCI::removeData('login_error');
-VCI::removeData('setup_error');
+PHPVCI::removeData('login_error');
+PHPVCI::removeData('setup_error');
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -2588,11 +2573,11 @@ VCI::removeData('setup_error');
         frame-ancestors 'none';
         form-action 'self';
       ">
-<title>PHP Luminova — Version Control Admin Dashboard</title>
+<title>PHP Version Control Inhalation - Admin Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
 <script>
-    const CSRF = <?= json_encode(VCI::getData('csrf')) ?>;
+    const CSRF = <?= json_encode(PHPVCI::getData('csrf')) ?>;
     window.submit = async function(form, onComplete = null) {
         form.set('csrf', CSRF);
         const response = await fetch(window.location.href, {
@@ -3521,7 +3506,7 @@ code {
 </head>
 <body>
 <svg xmlns="http://www.w3.org/2000/svg" style="display:none;">
-    <symbol id="luminova-vci-logo" data-viewBox="0 0 400 100" viewBox="10 10 330 100">
+    <symbol id="phpvci-logo" data-viewBox="0 0 400 100" viewBox="10 10 330 100">
         <defs>
             <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
                 <stop offset="0%" stop-color="#063ca9"/>
@@ -3555,7 +3540,7 @@ code {
                 font-size="28"
                 fill="#063ca9"
                 font-weight="600">
-            PHP LUMINOVA
+            PHP VCI
         </text>
 
         <text x="110" y="88"
@@ -3563,7 +3548,7 @@ code {
                 font-size="18"
                 fill="#acacb3"
                 letter-spacing="2">
-            VCI SYSTEM
+            VERSION CONTROL
         </text>
     </symbol>
 </svg>
@@ -3669,11 +3654,11 @@ code {
     <div class="auth-card wizard">
 
         <div class="auth-logo">
-            <span class="auth-logo-title">Luminova <span class="auth-logo-sub">/ Setup</span></span>
+            <span class="auth-logo-title">Phpvci <span class="auth-logo-sub">/ Setup</span></span>
         </div>
 
         <svg class="icon" width="300" height="100">
-            <use href="#luminova-vci-logo"></use>
+            <use href="#phpvci-logo"></use>
         </svg>
 
         <div class="wizard-steps" id="wizard-steps" aria-label="Setup progress">
@@ -3709,9 +3694,9 @@ code {
         <?php endif; ?>
 
         <form method="POST" autocomplete="off" id="setup-form" novalidate>
-            <input type="hidden" name="action"          value="save.path">
-            <input type="hidden" name="luminova_bin"    value="<?= htmlspecialchars($state['luminova_bin']) ?>">
-            <input type="hidden" name="csrf"            value="<?= htmlspecialchars(VCI::getData('csrf')) ?>">
+            <input type="hidden" name="action"   value="save.path">
+            <input type="hidden" name="phpvci_bin"  value="<?= htmlspecialchars($state['phpvci_bin']) ?>">
+            <input type="hidden" name="csrf"     value="<?= htmlspecialchars(PHPVCI::getData('csrf')) ?>">
 
             <div class="setup-step-section active" data-step="1">
 
@@ -3719,24 +3704,24 @@ code {
                     <h3 class="setup-intro-title">VCI PACKAGE DIRECTORY</h3>
                     <p class="setup-intro-text">
                         <?php if(empty($state['packages'])): ?>
-                        The Luminova packages base directory could not be found automatically.
+                        The phpvci packages base directory could not be found automatically.
                         Provide the absolute path where releases are stored.
                         <?php else: ?>
-                        Set Luminova packages base directory.
+                        Set phpvci packages base directory.
                         <?php endif; ?>
                     </p>
                 </div>
 
                 <div class="setup-paths-list" style="margin-bottom:1rem">
-                    Find Path: <code>luminova --where=packages</code> &nbsp;·&nbsp;<code>luminova --paths</code>
+                    Find Path: <code>phpvci --where=packages</code> &nbsp;·&nbsp;<code>phpvci --paths</code>
                 </div>
 
                 <div class="step-error" id="err-1"></div>
 
                 <div class="field-group">
-                    <label class="field-label" for="luminova_base">Packages directory</label>
-                    <input class="field-input" type="text" id="luminova_base" name="luminova_base"
-                        placeholder="/opt/luminova/packages"
+                    <label class="field-label" for="phpvci_base">Packages directory</label>
+                    <input class="field-input" type="text" id="phpvci_base" name="phpvci_base"
+                        placeholder="/opt/phpvci/packages"
                         value="<?= htmlspecialchars($state['packages']) ?>"
                         autocomplete="on"
                         spellcheck="false" autofocus>
@@ -3885,7 +3870,7 @@ code {
         clearErr(step);
 
         if (step === 1) {
-            const val = document.getElementById('luminova_base').value.trim();
+            const val = document.getElementById('phpvci_base').value.trim();
             if (!val) { showErr(1, 'Packages directory is required.'); return false; }
             if (!val.startsWith('/')) { showErr(1, 'Path must be absolute (start with /).'); return false; }
             return true;
@@ -4007,15 +3992,15 @@ code {
 }());
 </script>
 
-<?php elseif (!VCI::isLoggedIn()): ?>
+<?php elseif (!PHPVCI::isLoggedIn()): ?>
 <div class="auth-wrap">
     <div class="auth-card">
         <div class="auth-logo">
-            <span class="auth-logo-title">Luminova <span class="auth-logo-sub">/ Admin Manager</span></span>
+            <span class="auth-logo-title">Phpvci <span class="auth-logo-sub">/ Admin Manager</span></span>
         </div>
 
         <svg class="icon" width="300" height="100">
-            <use href="#luminova-vci-logo"></use>
+            <use href="#phpvci-logo"></use>
         </svg>
 
         <?php if ($loginError): ?>
@@ -4057,8 +4042,8 @@ code {
 
     <header class="header" id="site-header">
         <div class="header-brand">
-            <svg class="icon" width="200" height="50" aria-label="PHP Luminova VCI">
-                <use href="#luminova-vci-logo"></use>
+            <svg class="icon" width="200" height="50" aria-label="phpvci">
+                <use href="#phpvci-logo"></use>
             </svg>
             <span class="header-title">Admin Dashboard</span>
             <span class="header-sep hide-mobile" aria-hidden="true">/</span>
@@ -4069,7 +4054,7 @@ code {
 
         <nav class="header-right" aria-label="Site navigation">
             <a href="https://luminova.ng" class="btn btn-ghost" target="_blank" rel="noopener noreferrer">Luminova</a>
-            <a href="https://github.com/luminovang/vci-admin/" class="btn btn-ghost" target="_blank" rel="noopener noreferrer">Github</a>
+            <a href="https://github.com/phpvci/admin/" class="btn btn-ghost" target="_blank" rel="noopener noreferrer">Github</a>
             <form method="POST" style="display:inline">
                 <input type="hidden" name="action" value="reset.path">
                 <button class="btn btn-ghost" type="submit">Update Setup</button>
@@ -4106,10 +4091,10 @@ code {
                 <a href="https://luminova.ng" class="btn btn-ghost" target="_blank" rel="noopener noreferrer">
                     Luminova &#x2197;
                 </a>
-                <a href="https://github.com/luminovang/vci/" class="btn btn-ghost" target="_blank" rel="noopener noreferrer">
+                <a href="https://github.com/phpvci/phpvci/" class="btn btn-ghost" target="_blank" rel="noopener noreferrer">
                     Github (CLI) &#x2197;
                 </a>
-                <a href="https://github.com/luminovang/vci-admin/" class="btn btn-ghost" target="_blank" rel="noopener noreferrer">
+                <a href="https://github.com/phpvci/admin/" class="btn btn-ghost" target="_blank" rel="noopener noreferrer">
                     Github &#x2197;
                 </a>
             </div>
@@ -4128,7 +4113,7 @@ code {
     </header>
 
     <main class="main">
-        <?php if (VCI::isPathWithin($state['packages'], $appTargetPackage)): ?>
+        <?php if (PHPVCI::isPathWithin($state['packages'], $appTargetPackage)): ?>
             <?php if($vciResolveStatus === false): ?>
                 <div class="status-card">
                     <div class="status-meta">
@@ -4137,14 +4122,14 @@ code {
                                 <?= htmlspecialchars($activeVersion) ?>
                             </span>
                             <p class="switch-notice visible">
-                                Application is using local luminova modules and does not enable Luminova shared module feature in <code>.vci.php -> resolve.paths</code>. Select preferred version and click <code>"Apply"</code> to enable shared module
+                                Application is using local framework modules and does not enable phpvci shared module feature in <code>.phpvci.php -> enabled</code>. Select preferred version and click <code>"Apply"</code> to enable shared module
                             </p>
                     </div>
                     <span class="status-indicator status-inactive" id="js-live-badge">Local</span>
                 </div>
             <?php else: ?>
                 <div class="section-heading">Active Release</div>
-                <?php if(VCI::isModuleConflict()): ?>
+                <?php if(PHPVCI::isModuleConflict()): ?>
                     <div class="error-card" id="remove-notice">
                         <div class="error-card-header">
                             <span class="error-card-icon">⚠</span>
@@ -4190,9 +4175,9 @@ code {
                             </span>
                             <p class="switch-notice visible">
                                 <?php if ($isFollowCurrent): ?>
-                                    Application follows the latest Luminova stable version.
+                                    Application follows the latest framework stable version.
                                 <?php else: ?>
-                                    Application is locked to Luminova <?= htmlspecialchars($activeVersion) ?>.
+                                    Application is locked to framework <?= htmlspecialchars($activeVersion) ?>.
                                 <?php endif; ?>
                             </p>
                         <?php else: ?>
@@ -4214,11 +4199,11 @@ code {
                     <span class="error-card-title">Path Mismatch</span>
                 </div>
                 <div class="error-card-body">
-                    The target path in <code>.vci.php</code> does not fall within the
+                    The target path in <code>.phpvci.php</code> does not fall within the
                     configured packages directory.
                     <dl class="path-compare">
                         <dt>Expected</dt>
-                        <dd><code><?= htmlspecialchars(VCI::buildCanonicalPath($state['packages'], $appTargetPackage)) ?></code></dd>
+                        <dd><code><?= htmlspecialchars(PHPVCI::buildCanonicalPath($state['packages'], $appTargetPackage)) ?></code></dd>
                         <dt>Found</dt>
                         <dd><code><?= htmlspecialchars($appTargetPackage) ?></code></dd>
                     </dl>
@@ -4276,12 +4261,12 @@ code {
                 </button>
             </div>
             <p class="switch-notice" id="switch-notice">
-                Select the Luminova version for this application.
+                Select the framework version for this application.
             </p>
 
             <?php else: ?>
             <p class="no-releases">
-                No releases installed. If you are system admin, run <code>luminova package --install</code> first.
+                No releases installed. If you are system admin, run <code>phpvci package --install</code> first.
             </p>
             <?php endif; ?>
         </div>
@@ -4324,7 +4309,7 @@ code {
     <footer class="footer">
         <div class="footer-brand">
             <span class="footer-name">
-                PHP Luminova Version Control Admin <span class="footer-name-sub">/ v<?= VCI::VERSION ?></span> &middot;
+                PHP Version Control Installation Admin <span class="footer-name-sub">/ v<?= PHPVCI::VERSION ?></span> &middot;
             </span>
             <div class="footer-links">
                 <a 
@@ -4333,12 +4318,12 @@ code {
                     rel="noopener noreferrer">Docs</a>
                     <span class="footer-name-sub">/</span>
                 <a 
-                    href="https://github.com/luminovang/vci-admin/" 
+                    href="https://github.com/phpvci/admin/" 
                     target="_blank" 
                     rel="noopener noreferrer">Github</a>
                 <span class="footer-name-sub">/</span>
                 <a 
-                    href="https://github.com/luminovang/vci/" 
+                    href="https://github.com/phpvci/phpvci/" 
                     target="_blank" 
                     rel="noopener noreferrer">Github (CLI)</a>
             </div>
@@ -4347,9 +4332,9 @@ code {
             <span class="footer-sep-v" aria-hidden="true"></span>
             <span class="footer-session">
                 <span class="footer-session-dot" aria-hidden="true"></span>
-                Session &middot; <?= VCI::getRemainingSessionFormatted() ?>
+                Session &middot; <?= PHPVCI::getRemainingSessionFormatted() ?>
                 <span class="footer-session-dot" aria-hidden="true"></span>
-                IP &middot; <?= VCI::getData('auth_ip'); ?>
+                IP &middot; <?= PHPVCI::getData('auth_ip'); ?>
             </span>
         </div>
     </footer>
@@ -4542,9 +4527,9 @@ code {
         }
 
         const confirmed = confirm(
-            `Switch project luminova version to '${version}'?\n\n`
+            `Switch project module version to '${version}'?\n\n`
             + 'This will:\n'
-            + '  1. Update .vci.php release path\n'
+            + '  1. Update .phpvci.php release path\n'
             + '  2. Run composer autoload optimization\n'
             + '  3. Modify composer.json'
         );
