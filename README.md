@@ -1,11 +1,11 @@
 ![PHP Luminova VCI](https://github.com/luminovang/vci-admin/blob/main/logo.svg?v=2)
 
-# PHP Luminova — VCI Admin Dashboard
+# PHP VCI - Admin Dashboard
 
 **Version Control Interface for the PHP Luminova Framework**
 
 [![PHP](https://img.shields.io/badge/PHP-8.0%2B-777BB4?logo=php&logoColor=white)](https://php.net)
-[![License](https://img.shields.io/github/license/luminovang/vci-admin)](LICENSE)
+[![License](https://img.shields.io/github/license/phpvci/admin)](LICENSE)
 [![Luminova](https://img.shields.io/badge/Luminova-VCI-0750e1)](https://luminova.ng)
 
 ---
