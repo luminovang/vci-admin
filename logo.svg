@@ -39,7 +39,7 @@
               font-size="28"
               fill="#063ca9"
               font-weight="600">
-          PHP LUMINOVA
+          PHP VCI
       </text>
 
       <text x="110" y="88"
@@ -47,6 +47,6 @@
               font-size="18"
               fill="#acacb3"
               letter-spacing="2">
-          VCI SYSTEM
+          VERSION CONTROL
       </text>
 </svg>
