@@ -1,4 +1,4 @@
-![PHP Luminova VCI](https://github.com/luminovang/vci-admin/blob/main/logo.svg?v=2)
+![PHP Luminova VCI](https://github.com/luminovang/vci-admin/blob/main/logo.svg?v=3)
 
 # PHP VCI - Admin Dashboard
 
