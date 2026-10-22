@@ -354,7 +354,7 @@ VCI runs Composer after every version change. If Composer is not available, the 
 
 The file is fetched from `https://getcomposer.org/download/{version}/composer.phar`, where `{version}` is the `COMPOSER_PHAR_VERSION` constant in `phpvci.php` (default `latest-stable`). It accepts `latest`, `latest-stable`, `latest-preview`, `snapshot` or a version such as `2.7.1`.
 
-VCI saves the download to a temporary file, moves it into place, makes it executable and runs `--version` to check it. If the check fails, the file is deleted. No checksum or signature is verified. On success the path is saved as `composer_bin`. If `composer.phar` already exists in the project root, the download is skipped.
+VCI saves the download to a temporary file, moves it into place, makes it executable and runs `--version` to check it. If the check fails, the file is deleted. Composer sha256sum checksum signature is verified. On success the path is saved as `composer_bin`. If `composer.phar` already exists in the project root, the download is skipped.
 
 ---
 
