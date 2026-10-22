@@ -413,126 +413,159 @@ final class PHPVCI
 
         $version = COMPOSER_PHAR_VERSION ?: 'latest-stable';
 
-        if (
-            !preg_match(
-                '/^(latest(?:-(?:stable|preview))?|snapshot|v?\d+\.\d+\.\d+)$/',
-                $version
-            )
-        ) {
-            self::json(
-                false,
-                sprintf('Invalid Composer version "%s".', $version)
-            );
+        if (!preg_match(
+            '/^(?:latest(?:-(?:stable|preview))?|snapshot|v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/',
+            $version
+        )) {
+            self::json(false, sprintf('Invalid Composer version "%s".', $version));
         }
 
         $target = PROJECT_APP_ROOT . 'composer.phar';
-        $temp   = $target . '.tmp';
 
         if (is_file($target)) {
-            self::json(
-                true,
-                'Composer PHAR binary already installed.'
-            );
+            self::json(true, 'Composer PHAR binary already installed.');
         }
 
-        $url = sprintf(
-            'https://getcomposer.org/download/%s/composer.phar',
+        $temp = $target . '.tmp';
+        $base = sprintf(
+            'https://getcomposer.org/download/%s/',
             rawurlencode($version)
         );
 
-        if (!filter_var($url, FILTER_VALIDATE_URL)) {
-            self::json(false, 'Invalid Composer download URL.');
-        }
+        $pharUrl = $base . 'composer.phar';
+        $hashUrl = $base . 'composer.phar.sha256sum';
 
-        $read = @fopen($url, 'rb');
-
-        if ($read === false) {
-            self::json(
-                false,
-                'Failed to download Composer PHAR.'
-            );
-        }
-
-        $write = @fopen($temp, 'wb');
-
-        if ($write === false) {
-            fclose($read);
-
-            self::json(
-                false,
-                'Failed to create temporary Composer file.'
-            );
-        }
+        $read = null;
+        $write = null;
 
         try {
+            // Download the official SHA-256 checksum.
+            $context = stream_context_create([
+                'http' => [
+                    'timeout' => 30,
+                    'follow_location' => 1,
+                    'max_redirects' => 5,
+                ],
+                'ssl' => [
+                    'verify_peer' => true,
+                    'verify_peer_name' => true,
+                ],
+            ]);
+
+            $matches = [];
+            $checksum = @file_get_contents($hashUrl, false, $context);
+
+            if (
+                $checksum === false
+                || !preg_match('/^\s*([a-f0-9]{64})\b/i', $checksum, $matches)
+            ) {
+                self::json(false, 'Failed to retrieve a valid Composer SHA-256 checksum.');
+            }
+
+            $expectedHash = strtolower($matches[1]);
+
+            // Download the PHAR to a temporary file.
+            $read = @fopen($pharUrl, 'rb', false, $context);
+
+            if ($read === false) {
+                self::json(false, 'Failed to download Composer PHAR.');
+            }
+
+            $write = @fopen($temp, 'wb');
+
+            if ($write === false) {
+                self::json(false, 'Failed to create temporary Composer file.');
+            }
+
             while (!feof($read)) {
                 $chunk = fread($read, 8192);
 
                 if ($chunk === false) {
-                    self::json(
-                        false,
-                        'Failed while reading Composer download stream.'
-                    );
+                    throw new RuntimeException('Failed to read Composer download.');
                 }
 
-                if (fwrite($write, $chunk) === false) {
-                    self::json(
-                        false,
-                        'Failed while writing Composer PHAR.'
-                    );
+                $length = strlen($chunk);
+                $offset = 0;
+
+                while ($offset < $length) {
+                    $written = fwrite($write, substr($chunk, $offset));
+
+                    if ($written === false || $written === 0) {
+                        throw new RuntimeException('Failed to write Composer PHAR.');
+                    }
+
+                    $offset += $written;
                 }
             }
+
+            fclose($read);
+            $read = null;
+
+            if (!fclose($write)) {
+                $write = null;
+                throw new RuntimeException('Failed to close temporary Composer file.');
+            }
+
+            $write = null;
+
+            // Verify integrity before installing or executing the PHAR.
+            $actualHash = @hash_file('sha256', $temp);
+
+            if (
+                $actualHash === false
+                || !hash_equals($expectedHash, strtolower($actualHash))
+            ) {
+                throw new RuntimeException(
+                    'Composer PHAR SHA-256 verification failed.'
+                );
+            }
+
+            // Install only after checksum verification succeeds.
+            if (!@rename($temp, $target)) {
+                throw new RuntimeException('Failed to finalize Composer PHAR installation.');
+            }
+
+            @chmod($target, 0755);
+
+            $php = PHP_BIN;
+
+            if (!$php || !is_file($php) || !is_executable($php)) {
+                $php = PHP_BINARY ?: 'php';
+            }
+
+            $response = self::runCommand(sprintf(
+                '%s %s --version',
+                escapeshellarg($php),
+                escapeshellarg($target)
+            ));
+
+            if (($response['code'] ?? 1) !== 0) {
+                @unlink($target);
+
+                throw new RuntimeException('Composer PHAR execution verification failed.');
+            }
+
+            self::writeAdminConf(composerBin: $target);
+
+            self::json(true, [
+                'Composer PHAR installed and SHA-256 verified.',
+                '',
+                'SHA-256: ' . $actualHash,
+                trim((string) ($response['output'] ?? '')),
+            ], true);
         } catch (Throwable $e) {
             @unlink($temp);
 
             self::json(false, $e->getMessage());
         } finally {
-            fclose($read);
-            fclose($write);
+            if (is_resource($read)) {
+                fclose($read);
+            }
+
+            if (is_resource($write)) {
+                fclose($write);
+            }
         }
-
-        if (!@rename($temp, $target)) {
-            @unlink($temp);
-
-            self::json(
-                false,
-                'Failed to finalize Composer PHAR installation.'
-            );
-        }
-
-        @chmod($target, 0755);
-        $php = PHP_BIN;
-
-        if (
-            !$php ||
-            !is_file($php) ||
-            !is_executable($php)
-        ) {
-            $php = PHP_BINARY ?: 'php';
-        }
-
-        $response = self::runCommand(sprintf(
-            '%s %s --version',
-            escapeshellarg($php),
-            escapeshellarg($target)
-        ));
-
-        if (($response['code'] ?? 1) !== 0) {
-            @unlink($target);
-
-            self::json(
-                false,
-                'Composer PHAR verification failed.'
-            );
-        }
-
-        self::writeAdminConf(composerBin: $target);
-
-        self::json(true, [
-            '✔ Composer PHAR installed to project root.',
-            '',
-            trim((string) ($response['output'] ?? ''))
-        ], true);
     }
 
     /**
