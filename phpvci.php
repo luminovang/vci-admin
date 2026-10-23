@@ -2322,28 +2322,31 @@ final class PHPVCI
         $conf = null;
         $comment = <<<COMMENT
         /**
-         * Framework phpvci autoload configuration.
+         * Luminova shared Module Autoload Configuration (phpvci)
          *
-         * Defines how the bootloader resolves framework core paths and autoload strategy.
-         * This file is loaded during early bootstrap and overrides default resolution logic.
+         * Defines the shared framework installation paths and version constraint
+         * used by the bootloader.
          *
-         * Modes:
-         * - resolve.paths: enables shared framework installation
-         * - resolve.autoloader:
-         *      auto     → detect Composer, fallback to framework autoload if needed
-         *      composer → use Composer only (recommended updating composer psr4 mapping)
-         *      framework → use custom loader only
+         * Configuration options:
+         * - enabled: Enables or disables the shared framework installation.
+         * - version: Required framework version constraint.
+         * - paths.root: Shared framework installation root.
+         * - paths.target: Target framework release directory.
          *
-         * Rules:
-         * - Only system/bootstrap may be shared
-         * - Application code (app, routes, storage) must remain local
-         * - Version mismatch may cause runtime instability
+         * The following files and directories remain local:
+         * `system/plugins/*`, `system/Boot.php`, `app/*`, `routes/*`,
+         * `resource/*`, and all other application-related files.
          *
-         * @link https://luminova.ng/docs/0.0.0/boot/shared-modules
+         *
+         * Ensure the target release satisfies the version constraint. An
+         * incompatible framework version may cause runtime errors.
+         *
+         * @link https://luminova.ng/docs/0.0.0/boot/phpvci
+         * @link https://github.com/phpvci/admin
+         * @link https://github.com/phpvci/phpvci
          *
          * @return array{
          *     enabled: bool,
-         *     autoloader: 'auto'|'composer'|'framework',
          *     version: string,
          *     paths: array{
          *         root: string,
@@ -2359,7 +2362,6 @@ final class PHPVCI
 
         $conf ??= [
             'enabled'      => true,
-            'autoloader'   => 'auto',
             'version'      => '>=3.8',
             'paths'        => [
                 'root'   => '',
