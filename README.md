@@ -283,7 +283,6 @@ If `.phpvci.php` does not exist, VCI creates it with these defaults:
 <?php
 return [
     'enabled'    => true,
-    'autoloader' => 'auto',
     'version'    => '>=3.8',
     'paths'      => [
         'root'   => '/opt/phpvci.packages',
